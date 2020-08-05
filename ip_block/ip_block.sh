@@ -17,7 +17,15 @@ LOG_FILE="$FWDIR/log/ip_block.log"
 LOG_FILE_PERM="/var/log/full_ip_block.log"
 SAMP_COMMENT="threatcloud_ip_block"
 SAMP_COMMENT_BYPASS="threatcloud_ip_block_bypass"
-NEED_UPDATE=0 #does an update is needed? (in case the url was updated/ or timeout has occure)
+NEED_UPDATE=0 #does an update is needed? (in case the url was updated/ or timeout has occured)
+declare -a MALFORMED_IPS_ARR
+TEMP_MALFORMED_IP_FILE="/var/log/tmp/malformed_ip_file"
+TEMP_MAIL_FILE="/var/log/tmp/ip_block_email"
+###Environment specific settings for email notification
+MAIL_TO="destinationemail@domain.com"
+MAIL_FROM="sourceemail@domain.com"
+MAIL_SERVER_IP="x.x.x.x"
+
 
 declare -a CACHE_URL_OLD
 declare -a CACHE_LAST_UPDATE_OLD
@@ -36,7 +44,7 @@ function log_line {
     message=$1
     local_log_file=$2
     echo "$(date) $message" >> $local_log_file
-	echo "$(date) $message" >> $LOG_FILE_PERM
+    echo "$(date) $message" >> $LOG_FILE_PERM
 }
 
 function read_cache {
@@ -54,6 +62,9 @@ function read_cache {
 function convert {
     ip_valid_regex='^((25[0-5]|2[0-4][0-9]|[01][0-9][0-9]|[0-9]{1,2})[.]){3}(25[0-5]|2[0-4][0-9]|[01][0-9][0-9]|[0-9]{1,2})$'
 
+    rm -f $TEMP_MALFORMED_IP_FILE
+    touch $TEMP_MALFORMED_IP_FILE
+
      while read ip; do
 
      shopt -s extglob
@@ -70,8 +81,11 @@ function convert {
                 echo "add -a d -l r -t $SAMP_RULE_TIMEOUT -c $SAMP_COMMENT quota service any source range:$ip pkt-rate 0"
             ### If not a valid IPV4, log entry
             else
-                log_line "$url - $ip malformed - not added to the list" $LOG_FILE
-				### send email
+                log_line "Array Length convert: ${#MALFORMED_IPS_ARR[@]}" $LOG_FILE
+                log_line "$url - $ip malformed - not added to the SAMP rules import list" $LOG_FILE
+                ### Add malformed entries to file for later processing
+                entry="Malformed IP: $ip in feed: $url"
+                echo "$entry" >> $TEMP_MALFORMED_IP_FILE
             fi
         fi
      done
@@ -161,9 +175,14 @@ function update_one_url {
         insert_samp_anw=$(cat $cache_file_name | grep -vE '^$'| fw samp batch)
         if echo $insert_samp_anw | grep "failed"; then
             echo "Error in feed: $url"
-            log_line "error in feed: $url" $LOG_FILE
-			##send email
-			
+            log_line "error in feed - unable to load: $url" $LOG_FILE
+            ##send failure email
+            send_email "FEED_ERROR"
+        else
+            log_line "Checking for malformed IPs" $LOG_FILE
+            while IFS= read -r line; do
+                MALFORMED_IPS_ARR+=("$line")
+            done <$TEMP_MALFORMED_IP_FILE
         fi
     fi
 
@@ -181,6 +200,15 @@ function update_feeds {
         fi
 
     done < "$URL_FILE"
+    
+    ##Check if malformed IP's, if so send email
+    if (( ${#MALFORMED_IPS_ARR[@]} )); then
+        log_line "Malformed IPs found, sending alert" $LOG_FILE
+        send_email "MALFORMED_IP"
+    else
+        log_line "Zero malformed IPs found" $LOG_FILE
+    fi
+
 }
 
 function remove_existing_sam_rules {
@@ -220,6 +248,38 @@ function run_action {
     log_line "done end_samp" $LOG_FILE
 }
 
+function send_email {
+
+    rm -f $TEMP_MAIL_FILE
+    touch $TEMP_MAIL_FILE
+
+    echo -e "$MAIL_FROM\n$MAIL_TO\nIP_BLOCK issue detected: $1\n" >> $TEMP_MAIL_FILE
+
+    case $1 in
+
+    MALFORMED_IP)
+        if (( ${#MALFORMED_IPS_ARR[@]} )); then
+            for entry in "${MALFORMED_IPS_ARR[@]}"
+            do
+                ### Add each malformed IP entry to the body of the email
+                echo -e "$entry\n" >> $TEMP_MAIL_FILE
+            done
+        fi
+        ;;
+
+    FEED_ERROR)
+            echo -e "error in feed - unable to load: $url" >> $TEMP_MAIL_FILE
+        ;;
+
+    esac
+
+    /opt/CPsuite-R80.20/fw1/bin/sendmail -t $MAIL_SERVER_IP -m $TEMP_MAIL_FILE
+
+    #Remove temporary files
+    rm -f $TEMP_MAIL_FILE
+    rm -f $TEMP_MALFORMED_IP_FILE
+
+}
 
 # Run only on GAIA gateways
 if [[ "$IS_FW_MODULE" -eq 1 && -f /etc/appliance_config.xml ]]; then
