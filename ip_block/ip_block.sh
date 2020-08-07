@@ -21,11 +21,13 @@ NEED_UPDATE=0 #does an update is needed? (in case the url was updated/ or timeou
 declare -a MALFORMED_IPS_ARR
 TEMP_MALFORMED_IP_FILE="/var/log/tmp/malformed_ip_file"
 TEMP_MAIL_FILE="/var/log/tmp/ip_block_email"
-###Environment specific settings for email notification
+GW_HOSTNAME="$(hostname)"
+ALERT_GW=false
+###User defined environment specific settings for email notification
 MAIL_TO="destinationemail@domain.com"
 MAIL_FROM="sourceemail@domain.com"
 MAIL_SERVER_IP="x.x.x.x"
-
+GATEWAYS_TO_ALERT_FROM=(exampleGW1 exampleGW2)
 
 declare -a CACHE_URL_OLD
 declare -a CACHE_LAST_UPDATE_OLD
@@ -253,6 +255,21 @@ function send_email {
     rm -f $TEMP_MAIL_FILE
     touch $TEMP_MAIL_FILE
 
+    ### Loop through this array and see if this GW has been defined to send alerts, if so flip the boolean to TRUE
+    for gw in "${GATEWAYS_TO_ALERT_FROM[@]}"
+    do
+        if [ "$GW_HOSTNAME" == "$gw" ]; then
+            ALERT_GW=true
+        fi
+    done
+
+    ### If TRUE from loop above, send alerta, if FALSE stop processing this function and return to the previous calling function
+    if [ "$ALERT_GW" != true ]; then
+        log_line "$GW_HOSTNAME not configured to send alerts" $LOG_FILE
+		return
+    fi
+
+    ### Start building the temp file we will use for email notifications
     echo -e "$MAIL_FROM\n$MAIL_TO\nIP_BLOCK issue detected: $1\n" >> $TEMP_MAIL_FILE
 
     case $1 in
