@@ -63,18 +63,18 @@ function do_bundle {
         LOGDATE=$(echo $INLOG | sed 's/\.\///' | sed 's/_[0-9]*\.[a-z]*//');\
         LOGFILENAME=$(echo $INLOG | sed 's/\.\///');\
         LOGFILEWITHOUTEXT=$(echo $LOGFILENAME | cut -f 1 -d '.')
-        echo $LOGFILEWITHOUTEXT
+		ARCHIVEFILENAME="${LOGFILENAME}_${CMA}.tar.gz"
 
         if [ -e ${LOGFILENAME}.tar.gz ]; then
                 echo "${LOGFILENAME}.tar.gz already exists, skipping"
                 continue
         fi
-        $DEMO tar czvf ${LOGFILENAME}_${CMA}.tar.gz --remove-files ${LOGFILEWITHOUTEXT}* ;\
+        $DEMO tar czvf $ARCHIVEFILENAME --remove-files ${LOGFILEWITHOUTEXT}* ;\
 
 
         #fix timestamp
         MAKEDATE=$(echo $LOGDATE | sed 's/\-//g')
-        $DEMO touch -t ${MAKEDATE}"2359" ${LOGFILENAME}.tar.gz
+        $DEMO touch -t ${MAKEDATE}"2359" $ARCHIVEFILENAME
 }
 
 # For autobundle (and test) finds all logfiles of interest and calls do_bundle
