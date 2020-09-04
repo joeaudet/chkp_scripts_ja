@@ -77,6 +77,7 @@ function do_bundle {
 #  on them.
 function bundle_loop {
    cd $FWDIR/log
+   echo "cd $(pwd)"
    LOGLIST=`find . -mtime +$LOG_AGE -name "*.log"`
    ARCHIVELIST=`find . -mtime +$ARCHIVE_AGE -name "*.gz"`
 
