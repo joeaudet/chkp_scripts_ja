@@ -62,7 +62,8 @@ function do_bundle {
         CMA=$2
         LOGDATE=$(echo $INLOG | sed 's/\.\///' | sed 's/_[0-9]*\.[a-z]*//');\
         LOGFILENAME=$(echo $INLOG | sed 's/\.\///');\
-        LOGFILEWITHOUTEXT=$(basename $LOGFILENAME)
+        LOGFILEWITHOUTEXT=$(echo $LOGFILENAME | cut -f 1 -d '.')
+        echo $LOGFILEWITHOUTEXT
 
         if [ -e ${LOGFILENAME}.tar.gz ]; then
                 echo "${LOGFILENAME}.tar.gz already exists, skipping"
