@@ -16,7 +16,7 @@
 # 2013-07-26 MH - added deletion of old logs, controlled by ARCHIVE_AGE variable
 #
 # 2020-08-20 JA - Add in AWS S3 storage upload capabilities
-# 2020-08-27 JA - Modified do_bundle to put each log file in its own archive 
+# 2020-08-27 JA - Modified do_bundle to put each log file in its own archive
 #                 to ensure no issues with 2GB file creation limit
 #               - Changed autobundled to use $($MDSVERUTIL AllCMAs) instead of creating an array of CMA's
 #
@@ -35,9 +35,10 @@ LOG_AGE=30
 # this one is the number of days to upload and delete archive bundles after (set to 0 to disable)
 ARCHIVE_AGE=90
 
-## FUNCTIONS ###
+#Output file for DEMO option to echo commands to for later reference
+OUTPUT_FILE=/var/log/tmp/compress_and_upload_output.txt
 
-#Upload file to storage provider
+## FUNCTIONS ###
 function upload_to_aws_s3 {
 file=$1
 awspath=$2
@@ -58,32 +59,35 @@ $DEMO curl_cli -k -X PUT -T "${FILENAME}" \
 # Bundles log and pointers for logfile passed in as sole parameter
 function do_bundle {
         INLOG=$1
+        CMA=$2
         LOGDATE=$(echo $INLOG | sed 's/\.\///' | sed 's/_[0-9]*\.[a-z]*//');\
-		LOGFILENAME=$(echo $INLOG | sed 's/\.\///');\
+        LOGFILENAME=$(echo $INLOG | sed 's/\.\///');\
+        LOGFILEWITHOUTEXT=$(basename $LOGFILENAME)
 
         if [ -e ${LOGFILENAME}.tar.gz ]; then
                 echo "${LOGFILENAME}.tar.gz already exists, skipping"
                 continue
         fi
-        $DEMO tar czvf ${LOGFILENAME}.tar --remove-files ${LOGFILENAME}* ;\
+        $DEMO tar czvf ${LOGFILENAME}_${CMA}.tar.gz --remove-files ${LOGFILEWITHOUTEXT}* ;\
+
 
         #fix timestamp
         MAKEDATE=$(echo $LOGDATE | sed 's/\-//g')
         $DEMO touch -t ${MAKEDATE}"2359" ${LOGFILENAME}.tar.gz
 }
 
-
 # For autobundle (and test) finds all logfiles of interest and calls do_bundle
 #  on them.
 function bundle_loop {
    cd $FWDIR/log
    echo "cd $(pwd)"
+   $CMA=$1
    LOGLIST=`find . -mtime +$LOG_AGE -name "*.log"`
    ARCHIVELIST=`find . -mtime +$ARCHIVE_AGE -name "*.gz"`
 
    if [ "$LOGLIST" != "" ]; then
         for LOG in $LOGLIST; do
-            do_bundle $LOG
+            do_bundle $LOG $CMA
         done
     else
         echo "No logs to archive"
@@ -119,7 +123,7 @@ function autobundle {
        echo "Smartcenter detected"
        echo ""
 
-       bundle_loop
+       bundle_loop $CMA
 
     else
        echo "MDS detected"
