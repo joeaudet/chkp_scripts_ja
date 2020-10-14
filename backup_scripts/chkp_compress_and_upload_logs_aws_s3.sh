@@ -20,6 +20,7 @@
 # 2020-08-27 JA - Modified do_bundle to put each log file in its own archive
 #                 to ensure no issues with 2GB file creation limit
 #               - Changed autobundled to use $($MDSVERUTIL AllCMAs) instead of creating an array of CMA's
+#               - Added in S3 MD5 verification of files
 # 2020-09-30 JA - Added in functionality to list all CMA names
 #               - Added in ability to specify individual CMA name or loop all CMA names
 #               - Added command to test function to add output to output file per CMA for review before running
@@ -27,16 +28,35 @@
 # 2020-10-01 JA - Added ANSI color codes for some output messages
 #               - Moved AWS BUCKET and keys to separate file that is imported so not overwritten on updates
 #               - Check if $KEYS_FILE exists, if not create it with empty values and alert user to fill in those values
-#
+# 2020-10-02 JA - Updated AWS S3 upload to capture and parse HTTP code to determine if file properly uploaded
+# 2020-10-09 JA - Added in functions to enable email notifications, with separate settings file for SMTP settings and a check if present
 ##
 
 
 # Ansi color code variables
-ANSI_RED="\e[0;91m"
-ANSI_RESET="\e[0m"
+ANSI_RED="\e[0;91m";
+ANSI_RESET="\e[0m";
 
-SN=${0##*/}
-KEYS_FILE="aws_keys"
+SN=${0##*/};
+KEYS_FILE="aws_keys";
+HTTP_RESPONSE="";
+
+TODAY=$(date +"%Y%m%d");
+DATETIME=$(date +"%Y%m%d_%T");
+OUTPUT_DIR="/var/log/tmp/compress_and_upload_output";
+
+#Variables for notification of upload activities
+declare -a SUCCESSFUL_UPLOADS;
+declare -a UPLOAD_ERRORS;
+TEMP_MAIL_FILE="${OUTPUT_DIR}/$(hostname)_s3_upload_email_${DATETIME}";
+SUCCESS_LOG="${OUTPUT_DIR}/$(hostname)_s3_upload_${DATETIME}_success.log";
+ERROR_LOG="${OUTPUT_DIR}/$(hostname)_s3_upload_${DATETIME}_error.log";
+SMTP_SETTINGS_FILE="smtp_settings"
+###User defined environment specific settings for email notification
+SEND_EMAILS=false;
+MAIL_TO="destinationemail@domain.com";
+MAIL_FROM="sourceemail@domain.com";
+MAIL_SERVER_IP="x.x.x.x";
 
 if [ ! -f $KEYS_FILE ]; then
     echo "$KEYS_FILE does not exist in the same directory as this script, creating"
@@ -59,7 +79,32 @@ if [[ -z $BUCKET || -z $S3KEY || -s $S3SECRET ]]; then
     exit
 fi
 
-#As of 2020-10-01 - not able to figure out correct formatting
+#If sending emails is enabled, check for settings file, if not present create it with empty values
+if [ "$SEND_EMAILS" = true ]; then
+    if [ ! -f $SMTP_SETTINGS_FILE ]; then
+        echo "$SMTP_SETTINGS_FILE does not exist in the same directory as this script, creating"
+        echo -e "#SMTP server user defined variables used by $SN\n\n#Note: only one destination email can be used, suggest a distribution group\n\nMAIL_TO=\"\"\nMAIL_FROM=\"\"\nMAIL_SERVER_IP=\"\"" >> $SMTP_SETTINGS_FILE
+    fi
+
+    #Import SMTP Server user defined variables - should be in the same directory as the script
+    source $SMTP_SETTINGS_FILE
+
+    #Check to make sure all SMTP Server variables have values, otherwise exit
+    if [[ -z $MAIL_FROM || -z $MAIL_TO || -s $MAIL_SERVER_IP ]]; then
+        echo "SEND_EMAILS is enabled and one of the necessary SMTP Server user values is empty:"
+        echo ""
+        echo "Please check this file:"
+        echo -e "${ANSI_RED}$(pwd)/${SMTP_SETTINGS_FILE}${ANSI_RESET}"
+        echo ""
+        echo "Make sure these variables all have values:"
+        echo "MAIL_FROM | MAIL_TO | MAIL_SERVER_IP"
+        echo ""
+        exit
+    fi
+
+fi
+
+#As of 2020-10-01 - not able to figure out correct CA cert formatting
 #CACERT not used yet
 #CACERT=/home/admin/awss3_cacert.pem
 
@@ -71,17 +116,20 @@ ARCHIVE_AGE=90
 
 ## FUNCTIONS ###
 function upload_to_aws_s3 {
-file=$1
+FILE=$1
 #AWSPATH format - CMA/YEAR/MONTH
 AWSPATH="${2}/${3}/${4}"
-ECHO_SUFFIX=$5
-FILENAME=$(echo $file | sed 's/\.\///');\
+COMMAND_OUTPUT_FILE=$5
+FILENAME=$(echo $FILE | sed 's/\.\///');\
 DATEVALUE=`date -R`
-RESOURCE="/${BUCKET}/${AWSPATH}/${file}"
+RESOURCE="/${BUCKET}/${AWSPATH}/${FILE}"
 CONTENTTYPE="application/x-compressed-tar"
 STRINGTOSIGN="PUT\n\n${CONTENTTYPE}\n${DATEVALUE}\n${RESOURCE}"
-MD5SUM=$($MDS_CPDIR/bin/cpopenssl md5 -binary "$file" | base64)
+MD5SUM=$($MDS_CPDIR/bin/cpopenssl md5 -binary "$FILE" | base64)
+S3_BUCKET="https://${BUCKET}.s3.amazonaws.com/${AWSPATH}/${FILE}"
 SIGNATURE=`echo -en ${STRINGTOSIGN} | $MDS_CPDIR/bin/cpopenssl sha1 -hmac ${S3SECRET} -binary | base64`
+
+    #Check if $DEMO equals yes, if so do not run the commands, echo them to an output file
     if [[ $DEMO = "echo" ]]; then
         echo "curl_cli -s -k -o /dev/null -D - -X PUT -T "${FILENAME}" \
         -H "Host: ${BUCKET}.s3.amazonaws.com" \
@@ -89,26 +137,42 @@ SIGNATURE=`echo -en ${STRINGTOSIGN} | $MDS_CPDIR/bin/cpopenssl sha1 -hmac ${S3SE
         -H "Content-Type: ${CONTENTTYPE}" \
         -H "Content-MD5=$MD5SUM" \
         -H "Authorization: AWS ${S3KEY}:${SIGNATURE}" \
-        https://${BUCKET}.s3.amazonaws.com/${AWSPATH}/${FILENAME}"  >> $ECHO_SUFFIX;
+        ${S3_BUCKET}"  >> $COMMAND_OUTPUT_FILE;
     else
-        curl_cli -s -k -o /dev/null -D - -X PUT -T "${FILENAME}" \
+        HTTP_RESPONSE="$(curl_cli -s -k -o /dev/null -D - -X PUT -T "${FILENAME}" \
         -H "Host: ${BUCKET}.s3.amazonaws.com" \
         -H "Date: ${DATEVALUE}" \
         -H "Content-Type: ${CONTENTTYPE}" \
         -H "Content-MD5=$MD5SUM" \
         -H "Authorization: AWS ${S3KEY}:${SIGNATURE}" \
-        https://${BUCKET}.s3.amazonaws.com/${AWSPATH}/${FILENAME}
+        ${S3_BUCKET} )"
+
+        #Parse the response output looking for the HTTP code, grab the number and text only, strip any special characters
+        RESPONSE_CODE="$(echo $HTTP_RESPONSE | awk '$1 ~ /^HTTP/ { print NR,$0 }' | cut -f 3,4 -d ' ' | tr -d '\n\r\t' )"
+
+        if [[ $RESPONSE_CODE == "200 OK" ]] || [[ $RESPONSE_CODE == "100 Continue" ]] ; then
+            SUCCESS_MESSAGE="$(hostname) - $(pwd)/${FILE} uploaded successfully to ${S3_BUCKET}"
+            SUCCESSFUL_UPLOADS+=("$SUCCESS_MESSAGE")
+            echo $SUCCESS_MESSAGE
+            echo $SUCCESS_MESSAGE >> $SUCCESS_LOG
+        else
+            ERROR_MESSAGE="$(hostname) - $(pwd)/${FILE} had an error uploading to ${S3_BUCKET} - please fix and retry"
+            UPLOAD_ERRORS+=("$ERROR_MESSAGE")
+            echo $ERROR_MESSAGE
+            echo $ERROR_MESSAGE >> $ERROR_LOG
+        fi
+
     fi
 }
 
 # Bundles log and pointers for logfile passed in as sole parameter
 function do_bundle {
-    INLOG=$1
+    LOGFILE=$1
     CMA=$2
-    ECHO_SUFFIX="$3"
+    COMMAND_OUTPUT_FILE="$3"
     LOGDATE=""
-    LOGDATE=$(echo $INLOG | sed 's/\.\///' | sed 's/_[0-9]*\.[a-z]*//');\
-    LOGFILENAME=$(echo $INLOG | sed 's/\.\///');\
+    LOGDATE=$(echo $LOGFILE | sed 's/\.\///' | sed 's/_[0-9]*\.[a-z]*//');\
+    LOGFILENAME=$(echo $LOGFILE | sed 's/\.\///');\
     LOGFILEWITHOUTEXT=$(echo $LOGFILENAME | cut -f 1 -d '.')
     ARCHIVEFILENAME="${LOGFILENAME}_${CMA}.tar.gz"
 
@@ -117,16 +181,16 @@ function do_bundle {
             continue
     fi
 
-    #fix timestamp
-    MAKEDATE=$(echo $LOGFILEWITHOUTEXT | cut -f 1,2,3 -d '-' | cut -f 1 -d '_'  | sed 's/\-//g')
-
+    #fix timestamp of newly created archive file to match the modify date @ 23:59 of the original log file
+    ORIGINALMODIFYDATE=$(echo $LOGFILEWITHOUTEXT | cut -f 1,2,3 -d '-' | cut -f 1 -d '_'  | sed 's/\-//g')
 
     if [[ $DEMO = "echo" ]]; then
-        echo "tar czvf $ARCHIVEFILENAME --remove-files ${LOGFILEWITHOUTEXT}*" >> $ECHO_SUFFIX;
-        echo "touch -t ${MAKEDATE}"2359" $ARCHIVEFILENAME" >> $ECHO_SUFFIX
+        echo "tar czvf $ARCHIVEFILENAME --remove-files ${LOGFILEWITHOUTEXT}*" >> $COMMAND_OUTPUT_FILE;
+        echo "touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME" >> $COMMAND_OUTPUT_FILE
     else
+        echo "Log files for ${LOGFILEWITHOUTEXT} archived into $ARCHIVEFILENAME" >> $SUCCESS_LOG
         tar czvf $ARCHIVEFILENAME --remove-files ${LOGFILEWITHOUTEXT}* ;\
-        touch -t ${MAKEDATE}"2359" $ARCHIVEFILENAME
+        touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME
     fi
 }
 
@@ -135,16 +199,15 @@ function do_bundle {
 function bundle_loop {
    cd $FWDIR/log
    CMA=$1
-   LOGLIST=`find . -mtime +$LOG_AGE -name "*.log"`
-   ARCHIVELIST=`find . -mtime +$ARCHIVE_AGE -name "*.gz"`
+   LOGLIST=`find . -maxdepth 1 -mtime +$LOG_AGE -name "*.log"`
+   ARCHIVELIST=`find . -maxdepth 1 -mtime +$ARCHIVE_AGE -name "*.gz"`
 
 
    if [[ $DEMO_SUFFIX == "yes" ]]; then
        #Output file for DEMO option to echo commands to for review
-       COMMAND_OUTPUT_DIR="/var/log/tmp/compress_and_upload_output"
        #Check if directory exists, if not create it
-       [ ! -d $COMMAND_OUTPUT_DIR ] && mkdir -p "$COMMAND_OUTPUT_DIR"
-       COMMAND_OUTPUT_FILE="${COMMAND_OUTPUT_DIR}/${CMA}_compress_upload_output.txt"
+       [ ! -d $OUTPUT_DIR ] && mkdir -p "$OUTPUT_DIR"
+       COMMAND_OUTPUT_FILE="${OUTPUT_DIR}/${CMA}_compress_upload_output.txt"
        rm -f $COMMAND_OUTPUT_FILE
        echo "cd $(pwd)" >> $COMMAND_OUTPUT_FILE
    fi
@@ -154,22 +217,27 @@ function bundle_loop {
             do_bundle $LOG $CMA $COMMAND_OUTPUT_FILE
         done
     else
-        echo "No logs to archive"
+        NO_LOG_MESSSAGE="No logs over $LOG_AGE days to compress found in $(pwd)"
+        echo $NO_LOG_MESSSAGE
+        echo $NO_LOG_MESSSAGE >> $SUCCESS_LOG
     fi
 
    if [ "$ARCHIVELIST" != "" ]; then
         for ARCHIVE in $ARCHIVELIST; do
             ARCHIVE=$(echo $ARCHIVE | sed 's/\.\///');\
-                        echo "Archive: $ARCHIVE"
+            echo "Archive older then $ARCHIVE_AGE days found: $(pwd)/${ARCHIVE}"
             YEAR=$(echo $ARCHIVE | cut -f 1 -d '-')
             MONTH=$(echo $ARCHIVE | cut -f 2 -d '-')
             upload_to_aws_s3 $ARCHIVE $CMA $YEAR $MONTH $COMMAND_OUTPUT_FILE
         done
     else
-        echo "No matching archives to upload"
+        NO_ARCHIVE_MESSSAGE="No archives over $ARCHIVE_AGE days to upload found in $(pwd)"
+        echo $NO_ARCHIVE_MESSSAGE
+        echo $NO_ARCHIVE_MESSSAGE >> $SUCCESS_LOG
     fi
 
 #Still working out upload validation logic to confirm successful upload before deleting files automatically on 2020SEP30 - JA
+#Logic to confirm successful upload finished - this will be rewritten into a separate function called by the upload function
 #    if [ "$ARCHIVE_AGE" -gt 0 ]; then
 #        DELETELIST=`find . -mtime +$ARCHIVE_AGE -name "*.gz"`
 #        if [[ $DEMO = "echo" ]]; then
@@ -179,7 +247,7 @@ function bundle_loop {
 #            done
 #        else
 #            for BUNDLE in $DELETELIST; do
-#                           BUNDLE=$(echo $BUNDLE | sed 's/\.\///');\
+#                BUNDLE=$(echo $BUNDLE | sed 's/\.\///');\
 #                /bin/rm -v $BUNDLE
 #            done
 #        fi
@@ -189,6 +257,7 @@ function bundle_loop {
 # Detects if on Smartcenter or Provider-1 and runs bundle_loop for each
 # CMA or just once for Smartcenter
 function autobundle {
+    #Load Check Point environment variables, exit if error
     if [ -r /etc/profile.d/CP.sh ]; then
        . /etc/profile.d/CP.sh
     else
@@ -196,6 +265,7 @@ function autobundle {
         exit
     fi
 
+    #Check if variable empty, if so indicates a smartcenter not an MDS
     if [ -z ${MDSVERUTIL+x} ]; then
        echo "Smartcenter detected"
        echo ""
@@ -210,7 +280,6 @@ function autobundle {
 
        shopt -s nocasematch
        if [[ $DESIRED_CMA == "all" ]]; then
-
            for CMA in $($MDSVERUTIL AllCMAs); do
               echo ""
               echo "processing $CMA"
@@ -228,6 +297,15 @@ function autobundle {
     # reset mdsenv
     mdsenv
     fi
+
+    echo ""
+    echo "All logs and command output files are stored in ${OUTPUT_DIR}"
+
+    if [ "$SEND_EMAILS" = true ]; then
+        echo "Sending notification emails"
+        send_email
+    fi
+
 }
 
 function list_cmas {
@@ -238,12 +316,59 @@ function list_cmas {
     done
 }
 
+function email_log_message {
+
+    #Display on command line
+    echo -e "${1}"
+    #Append to $TEMP_MAIL_FILE which will be sent to users
+    echo -e $1 >> $TEMP_MAIL_FILE
+
+}
+
+function send_email {
+
+    rm -f $TEMP_MAIL_FILE
+    touch $TEMP_MAIL_FILE
+
+    ### Start building the temp file we will use for email notifications
+    email_log_message "$MAIL_FROM\n$MAIL_TO\n$(hostname) Log File Compression and Upload Notification ${DATETIME}\n"
+    email_log_message "All log files can be found on $(hostname) in ${OUTPUT_DIR}\n\n"
+
+    if (( ${#UPLOAD_ERRORS[@]} )); then
+        email_log_message "===== UPLOAD ERRORS =====\n"
+        for entry in "${UPLOAD_ERRORS[@]}"
+        do
+            ### Add each upload error to the body of the email
+            email_log_message "$entry\n"
+        done
+    else
+        email_log_message "No upload errors during run of $SN at ${DATETIME}"
+    fi
+
+    if (( ${#SUCCESSFUL_UPLOADS[@]} )); then
+        email_log_message "\n===== SUCCESSFUL UPLOADS =====\n"
+        for entry in "${SUCCESSFUL_UPLOADS[@]}"
+        do
+            ### Add each successful upload to the body of the email
+            email_log_message "$entry\n"
+        done
+    else
+        email_log_message "No archive upload attempts during run of $SN at ${DATETIME}"
+    fi
+
+    $MDS_FWDIR/bin/sendmail -t $MAIL_SERVER_IP -m $TEMP_MAIL_FILE
+
+    #Remove temporary files
+    rm -f $TEMP_MAIL_FILE
+    rm -f $TEMP_UPLOAD_LOG_FILE
+
+}
+
 ## END OF FUNCTION DECLARATIONS ##
 
 DEMO=""
 
 if [[ $1 != "-l" ]] && [[ -z $1 || -z $2 || $1 = "-h" || $1 = "--help" ]]; then
-    SN=${0##*/}
     echo ""
     echo "tar and gzips Checkpoint log files and related log pointer files."
     echo "Can either operate automatically for all logs older than $LOG_AGE days"
