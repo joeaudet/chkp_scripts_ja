@@ -44,6 +44,8 @@ HTTP_RESPONSE="";
 TODAY=$(date +"%Y%m%d");
 DATETIME=$(date +"%Y%m%d_%T");
 OUTPUT_DIR="/var/log/tmp/compress_and_upload_output";
+#Check if directory exists, if not create it
+[ ! -d $OUTPUT_DIR ] && mkdir -p "$OUTPUT_DIR"
 
 #Variables for notification of upload activities
 declare -a SUCCESSFUL_UPLOADS;
@@ -137,6 +139,7 @@ SIGNATURE=`echo -en ${STRINGTOSIGN} | $MDS_CPDIR/bin/cpopenssl sha1 -hmac ${S3SE
         -H "Content-Type: ${CONTENTTYPE}" \
         -H "Content-MD5=$MD5SUM" \
         -H "Authorization: AWS ${S3KEY}:${SIGNATURE}" \
+        -H "Connection: close" \
         ${S3_BUCKET}"  >> $COMMAND_OUTPUT_FILE;
     else
         HTTP_RESPONSE="$(curl_cli -s -k -o /dev/null -D - -X PUT -T "${FILENAME}" \
@@ -145,6 +148,7 @@ SIGNATURE=`echo -en ${STRINGTOSIGN} | $MDS_CPDIR/bin/cpopenssl sha1 -hmac ${S3SE
         -H "Content-Type: ${CONTENTTYPE}" \
         -H "Content-MD5=$MD5SUM" \
         -H "Authorization: AWS ${S3KEY}:${SIGNATURE}" \
+        -H "Connection: close" \
         ${S3_BUCKET} )"
 
         #Parse the response output looking for the HTTP code, grab the number and text only, strip any special characters
@@ -185,13 +189,17 @@ function do_bundle {
     ORIGINALMODIFYDATE=$(echo $LOGFILEWITHOUTEXT | cut -f 1,2,3 -d '-' | cut -f 1 -d '_'  | sed 's/\-//g')
 
     if [[ $DEMO = "echo" ]]; then
-        echo "tar czvf $ARCHIVEFILENAME --remove-files ${LOGFILEWITHOUTEXT}*" >> $COMMAND_OUTPUT_FILE;
-        echo "touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME" >> $COMMAND_OUTPUT_FILE
+       echo "touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME" >> $COMMAND_OUTPUT_FILE
+       echo "tar czvf $ARCHIVEFILENAME --exclude=${ARCHIVEFILENAME} --remove-files ${LOGFILEWITHOUTEXT}*" >> $COMMAND_OUTPUT_FILE;
+       echo "touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME" >> $COMMAND_OUTPUT_FILE
+
     else
-        echo "Log files for ${LOGFILEWITHOUTEXT} archived into $ARCHIVEFILENAME" >> $SUCCESS_LOG
-        tar czvf $ARCHIVEFILENAME --remove-files ${LOGFILEWITHOUTEXT}* ;\
-        touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME
+       echo "Log files for ${LOGFILEWITHOUTEXT} archived into $ARCHIVEFILENAME" >> $SUCCESS_LOG
+       touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME
+       tar czvf $ARCHIVEFILENAME --exclude=${ARCHIVEFILENAME} --remove-files ${LOGFILEWITHOUTEXT}* ;\
+       touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME
     fi
+
 }
 
 # For autobundle (and test) finds all logfiles of interest and calls do_bundle
@@ -205,8 +213,6 @@ function bundle_loop {
 
    if [[ $DEMO_SUFFIX == "yes" ]]; then
        #Output file for DEMO option to echo commands to for review
-       #Check if directory exists, if not create it
-       [ ! -d $OUTPUT_DIR ] && mkdir -p "$OUTPUT_DIR"
        COMMAND_OUTPUT_FILE="${OUTPUT_DIR}/${CMA}_compress_upload_output.txt"
        rm -f $COMMAND_OUTPUT_FILE
        echo "cd $(pwd)" >> $COMMAND_OUTPUT_FILE
