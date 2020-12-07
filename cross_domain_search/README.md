@@ -1,4 +1,4 @@
-#Misc cross domain search scripts
+# Misc cross domain search scripts #
 
 ### cross_domain_ip_search.ps1
 Written to allow for searching for existince of a host in all domains on an MDS server
