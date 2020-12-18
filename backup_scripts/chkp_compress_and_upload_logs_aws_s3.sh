@@ -128,6 +128,13 @@ LOG_AGE=30
 ARCHIVE_AGE=90
 
 ## FUNCTIONS ###
+function log_message {
+    MESSAGE=$1
+	LOG_FILE=$2
+	echo $MESSAGE
+	echo $MESSAGE >> $LOG_FILE
+}
+
 function upload_to_aws_s3 {
 FILE=$1
 #AWSPATH format - CMA/YEAR/MONTH
@@ -168,13 +175,11 @@ SIGNATURE=`echo -en ${STRINGTOSIGN} | $MDS_CPDIR/bin/cpopenssl sha1 -hmac ${S3SE
         if [[ $RESPONSE_CODE == "200 OK" ]] || [[ $RESPONSE_CODE == "100 Continue" ]] ; then
             SUCCESS_MESSAGE="$(hostname) - $(pwd)/${FILE} uploaded successfully to ${S3_BUCKET}"
             SUCCESSFUL_UPLOADS+=("$SUCCESS_MESSAGE")
-            echo $SUCCESS_MESSAGE
-            echo $SUCCESS_MESSAGE >> $SUCCESS_LOG
+			log_message "$SUCCESS_MESSAGE" $SUCCESS_LOG
         else
             ERROR_MESSAGE="$(hostname) - $(pwd)/${FILE} had an error uploading to ${S3_BUCKET} - please fix and retry"
             UPLOAD_ERRORS+=("$ERROR_MESSAGE")
-            echo $ERROR_MESSAGE
-            echo $ERROR_MESSAGE >> $ERROR_LOG
+			log_message "$ERROR_MESSAGE" $ERROR_LOG
         fi
 
     fi
@@ -200,7 +205,7 @@ function do_bundle {
     ORIGINALMODIFYDATE=$(echo $LOGFILEWITHOUTEXT | cut -f 1,2,3 -d '-' | cut -f 1 -d '_'  | sed 's/\-//g')
 
     if [[ $DEMO = "echo" ]]; then
-       echo "touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME" >> $COMMAND_OUTPUT_FILE
+	   echo "touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME" >> $COMMAND_OUTPUT_FILE
        echo "tar czvf $ARCHIVEFILENAME --exclude=${ARCHIVEFILENAME} --remove-files ${LOGFILEWITHOUTEXT}*" >> $COMMAND_OUTPUT_FILE;
        echo "touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME" >> $COMMAND_OUTPUT_FILE
 
@@ -216,20 +221,22 @@ function do_bundle {
 # For autobundle (and test) finds all logfiles of interest and calls do_bundle
 #  on them.
 function bundle_loop {
-   cd $FWDIR/log
-   CMA=$1
-   LOGLIST=`find . -maxdepth 1 -mtime +$LOG_AGE -name "*.log"`
-   ARCHIVELIST=`find . -maxdepth 1 -mtime +$ARCHIVE_AGE -name "*.gz"`
+    cd $FWDIR/log
+    CMA=$1
+    LOGLIST=`find . -maxdepth 1 -mtime +$LOG_AGE -name "*.log"`
+    ARCHIVELIST=`find . -maxdepth 1 -mtime +$ARCHIVE_AGE -name "*.gz"`
+    COMMAND_OUTPUT_FILE="${COMMAND_OUTPUT_DIR}/${CMA}_compress_upload_output.txt"
 
+    echo "Looking for log files with a modified date over $LOG_AGE days old"
+	echo "Looking for archive files with a modified date over $ARCHIVE_AGE days old"
 
-   if [[ $DEMO_SUFFIX == "yes" ]]; then
-       #Output file for DEMO option to echo commands to for review
-       COMMAND_OUTPUT_FILE="${COMMAND_OUTPUT_DIR}/${CMA}_compress_upload_output.txt"
-       rm -f $COMMAND_OUTPUT_FILE
-       echo "cd $(pwd)" >> $COMMAND_OUTPUT_FILE
-   fi
+    if [[ $DEMO_SUFFIX == "yes" ]]; then
+        #Output file for DEMO option to echo commands to for review
+        rm -f $COMMAND_OUTPUT_FILE
+        log_message "cd $(pwd)" $COMMAND_OUTPUT_FILE
+    fi
 
-   if [ "$LOGLIST" != "" ]; then
+    if [ "$LOGLIST" != "" ]; then
         for LOG in $LOGLIST; do
             LOGFILENAME=$(echo $LOG | sed 's/\.\///');\
             echo "Log file older then $LOG_AGE days found: $(pwd)/${LOGFILENAME}"
@@ -237,11 +244,10 @@ function bundle_loop {
         done
     else
         NO_LOG_MESSSAGE="No logs over $LOG_AGE days to compress found in $(pwd)"
-        echo $NO_LOG_MESSSAGE
-        echo $NO_LOG_MESSSAGE >> $SUCCESS_LOG
+		log_message "$NO_LOG_MESSSAGE" $SUCCESS_LOG
     fi
 
-   if [ "$ARCHIVELIST" != "" ]; then
+    if [ "$ARCHIVELIST" != "" ]; then
         for ARCHIVE in $ARCHIVELIST; do
             ARCHIVE=$(echo $ARCHIVE | sed 's/\.\///');\
             echo "Archive older then $ARCHIVE_AGE days found: $(pwd)/${ARCHIVE}"
@@ -251,8 +257,14 @@ function bundle_loop {
         done
     else
         NO_ARCHIVE_MESSSAGE="No archives over $ARCHIVE_AGE days to upload found in $(pwd)"
-        echo $NO_ARCHIVE_MESSSAGE
-        echo $NO_ARCHIVE_MESSSAGE >> $SUCCESS_LOG
+        log_message "$NO_ARCHIVE_MESSSAGE" $SUCCESS_LOG
+    fi
+
+    if [[ $DEMO_SUFFIX == "yes" ]]; then
+        echo ""
+	    echo "A file with the commands that would be run in auto mode can be found here:"
+	    echo $COMMAND_OUTPUT_FILE
+		echo ""
     fi
 
 #Still working out upload validation logic to confirm successful upload before deleting files automatically on 2020SEP30 - JA
@@ -279,6 +291,7 @@ function autobundle {
        bundle_loop $CMA
 
     else
+	   echo ""
        echo "MDS detected"
        echo ""
 
@@ -288,14 +301,16 @@ function autobundle {
        if [[ $DESIRED_CMA == "all" ]]; then
            for CMA in $($MDSVERUTIL AllCMAs); do
               echo ""
-              echo "processing $CMA"
+			  echo "======================="
+              echo "Processing $CMA"
               mdsenv $CMA
               bundle_loop $CMA
               echo "Completed $CMA"
            done
         else
             echo ""
-            echo "processing $DESIRED_CMA"
+			echo "======================="
+            echo "Processing $DESIRED_CMA"
             mdsenv $DESIRED_CMA
             bundle_loop $DESIRED_CMA
             echo "Completed $DESIRED_CMA"
@@ -322,7 +337,7 @@ function list_cmas {
     done
 }
 
-function email_log_message {
+function email_message {
 
     #Display on command line
     echo -e "${1}"
@@ -337,29 +352,29 @@ function send_email {
     touch $TEMP_MAIL_FILE
 
     ### Start building the temp file we will use for email notifications
-    email_log_message "$MAIL_FROM\n$MAIL_TO\n$(hostname) Log File Compression and Upload Notification ${DATETIME}\n"
-    email_log_message "All log files can be found on $(hostname) in ${BASE_OUTPUT_DIR}\n\n"
+    email_message "$MAIL_FROM\n$MAIL_TO\n$(hostname) Log File Compression and Upload Notification ${DATETIME}\n"
+    email_message "All log files can be found on $(hostname) in ${BASE_OUTPUT_DIR}\n\n"
 
     if (( ${#UPLOAD_ERRORS[@]} )); then
-        email_log_message "===== UPLOAD ERRORS =====\n"
-        for entry in "${UPLOAD_ERRORS[@]}"
+        email_message "===== UPLOAD ERRORS =====\n"
+        for ENTRY in "${UPLOAD_ERRORS[@]}"
         do
             ### Add each upload error to the body of the email
-            email_log_message "$entry\n"
+            email_message "$ENTRY\n"
         done
     else
-        email_log_message "No upload errors during run of $SN at ${DATETIME}"
+        email_message "No upload errors during run of $SN at ${DATETIME}"
     fi
 
     if (( ${#SUCCESSFUL_UPLOADS[@]} )); then
-        email_log_message "\n===== SUCCESSFUL UPLOADS =====\n"
-        for entry in "${SUCCESSFUL_UPLOADS[@]}"
+        email_message "\n===== SUCCESSFUL UPLOADS =====\n"
+        for ENTRY in "${SUCCESSFUL_UPLOADS[@]}"
         do
             ### Add each successful upload to the body of the email
-            email_log_message "$entry\n"
+            email_message "$ENTRY\n"
         done
     else
-        email_log_message "No archive upload attempts during run of $SN at ${DATETIME}"
+        email_message "No archive upload attempts during run of $SN at ${DATETIME}"
     fi
 
     $MDS_FWDIR/bin/sendmail -t $MAIL_SERVER_IP -m $TEMP_MAIL_FILE
@@ -396,6 +411,8 @@ case $1 in
 -t)
     DEMO="echo"
     DEMO_SUFFIX="yes"
+	echo ""
+	echo "Running in DEMO mode to show what would happen if run in auto bundle mode"
     autobundle $2
     ;;
 -a)

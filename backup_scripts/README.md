@@ -18,4 +18,4 @@ Used to collect archive logs on a Check Point MDS or MLM log server, and upload 
    ```
    /home/admin/./chkp_compress_and_upload_logs_aws_s3.sh
    ```
-1. Additional can be found by running the script with no arguments or -h or --help
+1. Additional info can be found by running the script with no arguments, -h or --help
