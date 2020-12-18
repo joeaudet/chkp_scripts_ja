@@ -30,43 +30,54 @@
 #               - Check if $KEYS_FILE exists, if not create it with empty values and alert user to fill in those values
 # 2020-10-02 JA - Updated AWS S3 upload to capture and parse HTTP code to determine if file properly uploaded
 # 2020-10-09 JA - Added in functions to enable email notifications, with separate settings file for SMTP settings and a check if present
+# 2020-12-18 JA - Updated function to list out all log files over LOG_AGE to console for testing
+#               - Created directory structure to put temp command file output and log files in separate directories
 ##
 
+###Start global variable declarations
 
 # Ansi color code variables
 ANSI_RED="\e[0;91m";
 ANSI_RESET="\e[0m";
 
 SN=${0##*/};
-KEYS_FILE="aws_keys";
-HTTP_RESPONSE="";
 
+#Define AWS S3 settings file in same location script is being run
+KEYS_FILE="aws_keys";
+#Import AWS S3 user defined variables
+source $KEYS_FILE
+
+HTTP_RESPONSE="";
 TODAY=$(date +"%Y%m%d");
 DATETIME=$(date +"%Y%m%d_%T");
-OUTPUT_DIR="/var/log/tmp/compress_and_upload_output";
-#Check if directory exists, if not create it
-[ ! -d $OUTPUT_DIR ] && mkdir -p "$OUTPUT_DIR"
+BASE_OUTPUT_DIR="/var/log/tmp/compress_and_upload_output";
+COMMAND_OUTPUT_DIR="${BASE_OUTPUT_DIR}/command_output";
+LOG_OUTPUT_DIR="${BASE_OUTPUT_DIR}/logs";
+
+#Check if directories exists, if not create
+[ ! -d $BASE_OUTPUT_DIR ] && mkdir -p "$BASE_OUTPUT_DIR"
+[ ! -d $COMMAND_OUTPUT_DIR ] && mkdir -p "$COMMAND_OUTPUT_DIR"
+[ ! -d $LOG_OUTPUT_DIR ] && mkdir -p "$LOG_OUTPUT_DIR"
 
 #Variables for notification of upload activities
 declare -a SUCCESSFUL_UPLOADS;
 declare -a UPLOAD_ERRORS;
-TEMP_MAIL_FILE="${OUTPUT_DIR}/$(hostname)_s3_upload_email_${DATETIME}";
-SUCCESS_LOG="${OUTPUT_DIR}/$(hostname)_s3_upload_${DATETIME}_success.log";
-ERROR_LOG="${OUTPUT_DIR}/$(hostname)_s3_upload_${DATETIME}_error.log";
+TEMP_MAIL_FILE="${BASE_OUTPUT_DIR}/$(hostname)_s3_upload_email_${DATETIME}";
+SUCCESS_LOG="${LOG_OUTPUT_DIR}/$(hostname)_s3_upload_${DATETIME}_success.log";
+ERROR_LOG="${LOG_OUTPUT_DIR}/$(hostname)_s3_upload_${DATETIME}_error.log";
+
+#Define SMTP settings file in same location script is being run
 SMTP_SETTINGS_FILE="smtp_settings"
 ###User defined environment specific settings for email notification
 SEND_EMAILS=false;
-MAIL_TO="destinationemail@domain.com";
-MAIL_FROM="sourceemail@domain.com";
-MAIL_SERVER_IP="x.x.x.x";
 
+###End global variable declarations
+
+#Check to make sure keys_file exists, if not create a template for user to fill in
 if [ ! -f $KEYS_FILE ]; then
     echo "$KEYS_FILE does not exist in the same directory as this script, creating"
     echo -e "#AWS S3 user defined variables used by $SN\nBUCKET=\"\"\nS3KEY=\"\"\nS3SECRET=\"\"" >> $KEYS_FILE
 fi
-
-#Import AWS S3 user defined variables - should be in the same directory as the script
-source $KEYS_FILE
 
 #Check to make sure all S3 variables have values, otherwise exit
 if [[ -z $BUCKET || -z $S3KEY || -s $S3SECRET ]]; then
@@ -213,13 +224,15 @@ function bundle_loop {
 
    if [[ $DEMO_SUFFIX == "yes" ]]; then
        #Output file for DEMO option to echo commands to for review
-       COMMAND_OUTPUT_FILE="${OUTPUT_DIR}/${CMA}_compress_upload_output.txt"
+       COMMAND_OUTPUT_FILE="${COMMAND_OUTPUT_DIR}/${CMA}_compress_upload_output.txt"
        rm -f $COMMAND_OUTPUT_FILE
        echo "cd $(pwd)" >> $COMMAND_OUTPUT_FILE
    fi
 
    if [ "$LOGLIST" != "" ]; then
         for LOG in $LOGLIST; do
+            LOGFILENAME=$(echo $LOG | sed 's/\.\///');\
+            echo "Log file older then $LOG_AGE days found: $(pwd)/${LOGFILENAME}"
             do_bundle $LOG $CMA $COMMAND_OUTPUT_FILE
         done
     else
@@ -244,20 +257,7 @@ function bundle_loop {
 
 #Still working out upload validation logic to confirm successful upload before deleting files automatically on 2020SEP30 - JA
 #Logic to confirm successful upload finished - this will be rewritten into a separate function called by the upload function
-#    if [ "$ARCHIVE_AGE" -gt 0 ]; then
-#        DELETELIST=`find . -mtime +$ARCHIVE_AGE -name "*.gz"`
-#        if [[ $DEMO = "echo" ]]; then
-#            for BUNDLE in $DELETELIST; do
-#                BUNDLE=$(echo $BUNDLE | sed 's/\.\///');\
-#                echo "/bin/rm -v $BUNDLE" >> $COMMAND_OUTPUT_FILE
-#            done
-#        else
-#            for BUNDLE in $DELETELIST; do
-#                BUNDLE=$(echo $BUNDLE | sed 's/\.\///');\
-#                /bin/rm -v $BUNDLE
-#            done
-#        fi
-#    fi
+
 }
 
 # Detects if on Smartcenter or Provider-1 and runs bundle_loop for each
@@ -305,7 +305,7 @@ function autobundle {
     fi
 
     echo ""
-    echo "All logs and command output files are stored in ${OUTPUT_DIR}"
+    echo "All logs and command output files are stored in ${BASE_OUTPUT_DIR}"
 
     if [ "$SEND_EMAILS" = true ]; then
         echo "Sending notification emails"
@@ -338,7 +338,7 @@ function send_email {
 
     ### Start building the temp file we will use for email notifications
     email_log_message "$MAIL_FROM\n$MAIL_TO\n$(hostname) Log File Compression and Upload Notification ${DATETIME}\n"
-    email_log_message "All log files can be found on $(hostname) in ${OUTPUT_DIR}\n\n"
+    email_log_message "All log files can be found on $(hostname) in ${BASE_OUTPUT_DIR}\n\n"
 
     if (( ${#UPLOAD_ERRORS[@]} )); then
         email_log_message "===== UPLOAD ERRORS =====\n"
