@@ -32,12 +32,17 @@
 # 2020-10-09 JA - Added in functions to enable email notifications, with separate settings file for SMTP settings and a check if present
 # 2020-12-18 JA - Updated function to list out all log files over LOG_AGE to console for testing
 #               - Created directory structure to put temp command file output and log files in separate directories
+#               - Added function to get ETAG (AWS S3 MD5 value), compare it to the local MD5 hash to ensure they match 
+#                 before deleting local file, or overwrite remote file if different
+#               - Added function to cleanup self diagnostic log files over a certain age
 ##
 
 ###Start global variable declarations
 
 # Ansi color code variables
 ANSI_RED="\e[0;91m";
+ANSI_GREEN="\e[0;32m";
+ANSI_YELLOW="\e[0;33m";
 ANSI_RESET="\e[0m";
 
 SN=${0##*/};
@@ -47,9 +52,23 @@ KEYS_FILE="aws_keys";
 #Import AWS S3 user defined variables
 source $KEYS_FILE
 
+#As of 2020-10-01 - not able to figure out correct CA cert formatting
+#CACERT not used yet
+#CACERT=/home/admin/awss3_cacert.pem
+
+# set this to the number of days you want to keep diagnostic log files from this script
+SELF_LOG_AGE=30
+
+# set this to the number of days that you wish to keep logs unbundled for
+LOG_AGE=30
+
+# this one is the number of days to upload and delete archive bundles after (set to 0 to disable)
+ARCHIVE_AGE=90
+
 HTTP_RESPONSE="";
-TODAY=$(date +"%Y%m%d");
-DATETIME=$(date +"%Y%m%d_%T");
+MATCHRESULT=""
+#DATETIME=$(date +"%Y%m%d_%T");
+DATETIME=$(date +"%Y%m%d_%H%M%S");
 BASE_OUTPUT_DIR="/var/log/tmp/compress_and_upload_output";
 COMMAND_OUTPUT_DIR="${BASE_OUTPUT_DIR}/command_output";
 LOG_OUTPUT_DIR="${BASE_OUTPUT_DIR}/logs";
@@ -117,22 +136,26 @@ if [ "$SEND_EMAILS" = true ]; then
 
 fi
 
-#As of 2020-10-01 - not able to figure out correct CA cert formatting
-#CACERT not used yet
-#CACERT=/home/admin/awss3_cacert.pem
-
-# set this to the number of days that you wish to keep logs unbundled for
-LOG_AGE=30
-
-# this one is the number of days to upload and delete archive bundles after (set to 0 to disable)
-ARCHIVE_AGE=90
-
 ## FUNCTIONS ###
+
+#used to display color coded messages to the console, and log normal output to the correct file
 function log_message {
     MESSAGE=$1
-	LOG_FILE=$2
-	echo $MESSAGE
-	echo $MESSAGE >> $LOG_FILE
+    LOG_FILE=$2
+    COLOR=""
+    case $3 in
+        SUCCESS )
+          COLOR="$ANSI_GREEN"
+        ;;
+        WARN )
+          COLOR="$ANSI_YELLOW"
+        ;;
+        ERROR )
+          COLOR="$ANSI_RED"
+        ;;
+    esac
+    echo -e "${COLOR}${MESSAGE}${ANSI_RESET}"
+    echo "$MESSAGE" >> "$LOG_FILE"
 }
 
 function upload_to_aws_s3 {
@@ -140,25 +163,25 @@ FILE=$1
 #AWSPATH format - CMA/YEAR/MONTH
 AWSPATH="${2}/${3}/${4}"
 COMMAND_OUTPUT_FILE=$5
-FILENAME=$(echo $FILE | sed 's/\.\///');\
-DATEVALUE=`date -R`
+FILENAME=$(echo "$FILE" | sed 's/\.\///');
+DATEVALUE=$(date -R)
 RESOURCE="/${BUCKET}/${AWSPATH}/${FILE}"
 CONTENTTYPE="application/x-compressed-tar"
 STRINGTOSIGN="PUT\n\n${CONTENTTYPE}\n${DATEVALUE}\n${RESOURCE}"
-MD5SUM=$($MDS_CPDIR/bin/cpopenssl md5 -binary "$FILE" | base64)
-S3_BUCKET="https://${BUCKET}.s3.amazonaws.com/${AWSPATH}/${FILE}"
-SIGNATURE=`echo -en ${STRINGTOSIGN} | $MDS_CPDIR/bin/cpopenssl sha1 -hmac ${S3SECRET} -binary | base64`
+MD5SUM=$("$MDS_CPDIR"/bin/cpopenssl md5 -binary "$FILE" | base64)
+COMPLETE_S3_URL="https://${BUCKET}.s3.amazonaws.com/${AWSPATH}/${FILE}"
+SIGNATURE=$(echo -en "${STRINGTOSIGN}" | "$MDS_CPDIR"/bin/cpopenssl sha1 -hmac "${S3SECRET}" -binary | base64)
 
     #Check if $DEMO equals yes, if so do not run the commands, echo them to an output file
     if [[ $DEMO = "echo" ]]; then
-        echo "curl_cli -s -k -o /dev/null -D - -X PUT -T "${FILENAME}" \
-        -H "Host: ${BUCKET}.s3.amazonaws.com" \
-        -H "Date: ${DATEVALUE}" \
+        echo "curl_cli -s -k -o /dev/null -D - -X PUT -T ${FILENAME} \
+        -H "Host: "${BUCKET}".s3.amazonaws.com" \
+        -H "Date: "${DATEVALUE}"" \
         -H "Content-Type: ${CONTENTTYPE}" \
         -H "Content-MD5=$MD5SUM" \
         -H "Authorization: AWS ${S3KEY}:${SIGNATURE}" \
         -H "Connection: close" \
-        ${S3_BUCKET}"  >> $COMMAND_OUTPUT_FILE;
+        ${COMPLETE_S3_URL}"  >> "$COMMAND_OUTPUT_FILE";
     else
         HTTP_RESPONSE="$(curl_cli -s -k -o /dev/null -D - -X PUT -T "${FILENAME}" \
         -H "Host: ${BUCKET}.s3.amazonaws.com" \
@@ -167,22 +190,109 @@ SIGNATURE=`echo -en ${STRINGTOSIGN} | $MDS_CPDIR/bin/cpopenssl sha1 -hmac ${S3SE
         -H "Content-MD5=$MD5SUM" \
         -H "Authorization: AWS ${S3KEY}:${SIGNATURE}" \
         -H "Connection: close" \
-        ${S3_BUCKET} )"
+        "${COMPLETE_S3_URL}" )"
 
-        #Parse the response output looking for the HTTP code, grab the number and text only, strip any special characters
-        RESPONSE_CODE="$(echo $HTTP_RESPONSE | awk '$1 ~ /^HTTP/ { print NR,$0 }' | cut -f 3,4 -d ' ' | tr -d '\n\r\t' )"
-
-        if [[ $RESPONSE_CODE == "200 OK" ]] || [[ $RESPONSE_CODE == "100 Continue" ]] ; then
-            SUCCESS_MESSAGE="$(hostname) - $(pwd)/${FILE} uploaded successfully to ${S3_BUCKET}"
-            SUCCESSFUL_UPLOADS+=("$SUCCESS_MESSAGE")
-			log_message "$SUCCESS_MESSAGE" $SUCCESS_LOG
-        else
-            ERROR_MESSAGE="$(hostname) - $(pwd)/${FILE} had an error uploading to ${S3_BUCKET} - please fix and retry"
-            UPLOAD_ERRORS+=("$ERROR_MESSAGE")
-			log_message "$ERROR_MESSAGE" $ERROR_LOG
-        fi
-
+        #Parse the response output looking for the HTTP code, store numeric and text in variables, and perform actions if 200/100 or other
+        #shopt -s extglob
+        OLDIFS=$IFS
+        IFS=$'\n'
+        for i in $HTTP_RESPONSE
+        do
+        #echo "$i"
+            case "$i" in
+              HTTP* )
+                RESPONSE_CODE_NUMBER=$(echo "$i" | awk '{ print $2 }' | tr -d '\n\r\t')
+                RESPONSE_CODE_TEXT=$(echo "$i" | awk '{ print $3,$4 }' | tr -d '\n\r\t')
+                if [[ $RESPONSE_CODE_NUMBER == "200" ]]; then
+                    SUCCESS_MESSAGE="$(hostname) - $(pwd)/${FILE} uploaded successfully to ${COMPLETE_S3_URL}"
+                    SUCCESSFUL_UPLOADS+=("$SUCCESS_MESSAGE")
+                    log_message "$SUCCESS_MESSAGE" "$SUCCESS_LOG"
+                elif [[ $RESPONSE_CODE_NUMBER == "100" ]]; then
+                    continue
+                else
+                    ERROR_MESSAGE="$(hostname) - $(pwd)/${FILE} had an error uploading to ${COMPLETE_S3_URL} - please fix and retry - HTTP Response Code: ${RESPONSE_CODE_NUMBER} ${RESPONSE_CODE_TEXT}"
+                    UPLOAD_ERRORS+=("$ERROR_MESSAGE")
+                    log_message "$ERROR_MESSAGE" "$ERROR_LOG"
+                    exit
+                fi
+              ;;
+            esac
+        done
+        #Reset IFS so that we do not break the MDSENV script when done
+        IFS=$OLDIFS
+        #Done looping through HTTP_RESPONSE
     fi
+}
+
+#Get header info for remote file, store output in variables for use by another function
+function get_file_info_aws_s3 {
+    FILE=$1
+    #AWSPATH format - CMA/YEAR/MONTH
+    AWSPATH="${2}/${3}/${4}"
+    COMPLETE_S3_URL="https://${BUCKET}.s3.amazonaws.com/${AWSPATH}/${FILE}"
+    RESOURCE="/${BUCKET}/${AWSPATH}/${FILE}"
+    DATEVALUE=$(date -R)
+    STRINGTOSIGN="HEAD\n\n\n${DATEVALUE}\n${RESOURCE}"
+    SIGNATURE=$(echo -en "${STRINGTOSIGN}" | "$MDS_CPDIR"/bin/cpopenssl sha1 -hmac "${S3SECRET}" -binary | base64)
+
+    response=$(curl_cli -k -I -H "Host: ${BUCKET}.s3.amazonaws.com" \
+        -H "Date: ${DATEVALUE}" \
+        -H "Authorization: AWS ${S3KEY}:${SIGNATURE}" \
+        "${COMPLETE_S3_URL}" )
+
+        #Parse the response output looking for the HTTP code, store numeric and text in variables, and perform actions if 200, or other
+        #Store the IFS value for later restoration
+        OLDIFS=$IFS
+        #Set the IFS to use newline characters to make HTTP RESPONSE parsable
+        IFS=$'\n'
+        for i in $response
+        do
+                case "$i" in
+                  ETag* )
+                        ETAG=$(echo "$i" | awk '{ print $2 }' | sed 's/\"//g' | tr -d '\n\r\t')
+                  ;;
+                  HTTP* )
+                        RESPONSE_CODE_NUMBER=$(echo "$i" | awk '{ print $2 }' | tr -d '\n\r\t')
+                        RESPONSE_CODE_TEXT=$(echo "$i" | awk '{ print $3,$4 }' | tr -d '\n\r\t')
+                        if [ "$RESPONSE_CODE_NUMBER" == "404" ]; then
+                            echo "Remote file ${1} not found - HTTP Response Code: ${RESPONSE_CODE_NUMBER} ${RESPONSE_CODE_TEXT}"
+                            IFS="$OLDIFS"
+                            return
+
+                        elif [ "$RESPONSE_CODE_NUMBER" != "200" ]; then
+                            S3_FILE_LOOKUP_ERROR_MESSAGE="Error accessing remote file ${1} - please correct the issue and rerun the script - HTTP Response Code: ${RESPONSE_CODE_NUMBER} ${RESPONSE_CODE_TEXT}"
+                            log_message "$S3_FILE_LOOKUP_ERROR_MESSAGE" "$ERROR_LOG" "ERROR"
+                            IFS="$OLDIFS"
+                            #Zero out the ETAG global variable since we were unable to access the file for some reason
+                            ETAG=""
+                            #Exit loop
+                            return
+                        fi
+                  ;;
+                esac
+        done
+        #Reset IFS so that we do not break the MDSENV script when done
+        IFS="$OLDIFS"
+        #Done looping through HTTP_RESPONSE
+}
+
+#Compare local and remote file checksums for a match
+function compare_local_remote_md5_s3 {
+        #Purge the global variable before running lookup
+        ETAG=""
+
+        #Connect to AWS, get remote file info, store ETAG info in global $ETAG variable
+        get_file_info_aws_s3 "$1" "$2" "$3" "$4"
+
+        #Get the MD5 checksum of the local file, store for comparison (the command returns file name and checksum, so we have to parse with awk
+        MD5SUM=$(md5sum "$1" | awk '{ print $1 }' )
+
+        #Compare $MD5SUM and $ETAG, echo result (calling function will store this in a variable)
+        if [ "$MD5SUM" = "$ETAG" ]; then
+            MATCHRESULT="MATCH"
+        else
+            MATCHRESULT="DIFFERENT"
+        fi
 }
 
 # Bundles log and pointers for logfile passed in as sole parameter
@@ -190,30 +300,29 @@ function do_bundle {
     LOGFILE=$1
     CMA=$2
     COMMAND_OUTPUT_FILE="$3"
-    LOGDATE=""
-    LOGDATE=$(echo $LOGFILE | sed 's/\.\///' | sed 's/_[0-9]*\.[a-z]*//');\
-    LOGFILENAME=$(echo $LOGFILE | sed 's/\.\///');\
-    LOGFILEWITHOUTEXT=$(echo $LOGFILENAME | cut -f 1 -d '.')
+    LOGFILENAME=$(echo "$LOGFILE" | sed 's/\.\///');
+    LOGFILEWITHOUTEXT=$(echo "$LOGFILENAME" | cut -f 1 -d '.')
     ARCHIVEFILENAME="${LOGFILENAME}_${CMA}.tar.gz"
 
-    if [ -e ${LOGFILENAME}.tar.gz ]; then
+    if [ -e "${LOGFILENAME}".tar.gz ]; then
             echo "${LOGFILENAME}.tar.gz already exists, skipping"
-            continue
+            #continue
+            return
     fi
 
     #fix timestamp of newly created archive file to match the modify date @ 23:59 of the original log file
-    ORIGINALMODIFYDATE=$(echo $LOGFILEWITHOUTEXT | cut -f 1,2,3 -d '-' | cut -f 1 -d '_'  | sed 's/\-//g')
+    ORIGINALMODIFYDATE=$(echo "$LOGFILEWITHOUTEXT" | cut -f 1,2,3 -d '-' | cut -f 1 -d '_'  | sed 's/\-//g')
 
     if [[ $DEMO = "echo" ]]; then
-	   echo "touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME" >> $COMMAND_OUTPUT_FILE
-       echo "tar czvf $ARCHIVEFILENAME --exclude=${ARCHIVEFILENAME} --remove-files ${LOGFILEWITHOUTEXT}*" >> $COMMAND_OUTPUT_FILE;
-       echo "touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME" >> $COMMAND_OUTPUT_FILE
+       echo "touch -t ${ORIGINALMODIFYDATE}2359 $ARCHIVEFILENAME" >> "$COMMAND_OUTPUT_FILE"
+       echo "tar czvf $ARCHIVEFILENAME --exclude=${ARCHIVEFILENAME} --remove-files ${LOGFILEWITHOUTEXT}*" >> "$COMMAND_OUTPUT_FILE";
+       echo "touch -t ${ORIGINALMODIFYDATE}2359 $ARCHIVEFILENAME" >> "$COMMAND_OUTPUT_FILE"
 
     else
-       echo "Log files for ${LOGFILEWITHOUTEXT} archived into $ARCHIVEFILENAME" >> $SUCCESS_LOG
-       touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME
-       tar czvf $ARCHIVEFILENAME --exclude=${ARCHIVEFILENAME} --remove-files ${LOGFILEWITHOUTEXT}* ;\
-       touch -t ${ORIGINALMODIFYDATE}"2359" $ARCHIVEFILENAME
+       echo "Log files for ${LOGFILEWITHOUTEXT} archived into $ARCHIVEFILENAME" >> "$SUCCESS_LOG"
+       touch -t "${ORIGINALMODIFYDATE}""2359" "$ARCHIVEFILENAME"
+       tar czvf "$ARCHIVEFILENAME" --exclude="${ARCHIVEFILENAME}" --remove-files "${LOGFILEWITHOUTEXT}"* ;
+       touch -t "${ORIGINALMODIFYDATE}""2359" "$ARCHIVEFILENAME"
     fi
 
 }
@@ -221,54 +330,70 @@ function do_bundle {
 # For autobundle (and test) finds all logfiles of interest and calls do_bundle
 #  on them.
 function bundle_loop {
-    cd $FWDIR/log
+    cd "$FWDIR"/log
     CMA=$1
-    LOGLIST=`find . -maxdepth 1 -mtime +$LOG_AGE -name "*.log"`
-    ARCHIVELIST=`find . -maxdepth 1 -mtime +$ARCHIVE_AGE -name "*.gz"`
+    LOGLIST=$(find . -maxdepth 1 -mtime +$LOG_AGE -name "*.log")
+    ARCHIVELIST=$(find . -maxdepth 1 -mtime +$ARCHIVE_AGE -name "*.gz")
     COMMAND_OUTPUT_FILE="${COMMAND_OUTPUT_DIR}/${CMA}_compress_upload_output.txt"
+    MATCHRESULT=""
 
     echo "Looking for log files with a modified date over $LOG_AGE days old"
-	echo "Looking for archive files with a modified date over $ARCHIVE_AGE days old"
+    echo "Looking for archive files with a modified date over $ARCHIVE_AGE days old"
 
     if [[ $DEMO_SUFFIX == "yes" ]]; then
         #Output file for DEMO option to echo commands to for review
-        rm -f $COMMAND_OUTPUT_FILE
-        log_message "cd $(pwd)" $COMMAND_OUTPUT_FILE
+        rm -f "$COMMAND_OUTPUT_FILE"
+        log_message "cd $(pwd)" "$COMMAND_OUTPUT_FILE"
     fi
 
     if [ "$LOGLIST" != "" ]; then
         for LOG in $LOGLIST; do
-            LOGFILENAME=$(echo $LOG | sed 's/\.\///');\
-            echo "Log file older then $LOG_AGE days found: $(pwd)/${LOGFILENAME}"
-            do_bundle $LOG $CMA $COMMAND_OUTPUT_FILE
+            LOGFILENAME=$(echo "$LOG" | sed 's/\.\///');
+            #echo "Log file older then $LOG_AGE days found: $(pwd)/${LOGFILENAME}"
+            FOUND_LOG_MESSAGE="Log file older then $LOG_AGE days found: $(pwd)/${LOGFILENAME}"
+            log_message "$FOUND_LOG_MESSAGE" "$SUCCESS_LOG" "SUCCESS"
+            do_bundle "$LOG" "$CMA" "$COMMAND_OUTPUT_FILE"
         done
     else
-        NO_LOG_MESSSAGE="No logs over $LOG_AGE days to compress found in $(pwd)"
-		log_message "$NO_LOG_MESSSAGE" $SUCCESS_LOG
+        NO_LOG_MESSAGE="No logs over $LOG_AGE days to compress found in $(pwd)"
+        log_message "$NO_LOG_MESSAGE" "$SUCCESS_LOG" "WARN"
     fi
 
     if [ "$ARCHIVELIST" != "" ]; then
         for ARCHIVE in $ARCHIVELIST; do
-            ARCHIVE=$(echo $ARCHIVE | sed 's/\.\///');\
+            ARCHIVE=$(echo "$ARCHIVE" | sed 's/\.\///');\
+            echo ""
+            echo "+++++++++++++++++++"
             echo "Archive older then $ARCHIVE_AGE days found: $(pwd)/${ARCHIVE}"
-            YEAR=$(echo $ARCHIVE | cut -f 1 -d '-')
-            MONTH=$(echo $ARCHIVE | cut -f 2 -d '-')
-            upload_to_aws_s3 $ARCHIVE $CMA $YEAR $MONTH $COMMAND_OUTPUT_FILE
+            YEAR=$(echo "$ARCHIVE" | cut -f 1 -d '-')
+            MONTH=$(echo "$ARCHIVE" | cut -f 2 -d '-')
+
+            #Connect to remote provider, retrieve stored MD5 hash, compare to local file
+            compare_local_remote_md5_s3 "$ARCHIVE" "$CMA" "$YEAR" "$MONTH"
+            case $MATCHRESULT in
+              MATCH )
+                #echo "Local and remote files ${MATCHRESULT}"
+                echo "${ARCHIVE} MD5 matches remote file, deleting local"
+                rm -f "${ARCHIVE}"
+              ;;
+              DIFFERENT )
+                #echo "Local and remote files are ${MATCHRESULT}"
+                echo "$(pwd)/${ARCHIVE} either not found in S3 bucket (or MD5 is different), uploading a copy"
+                upload_to_aws_s3 "$ARCHIVE" "$CMA" "$YEAR" "$MONTH" "$COMMAND_OUTPUT_FILE"
+              ;;
+            esac
         done
     else
-        NO_ARCHIVE_MESSSAGE="No archives over $ARCHIVE_AGE days to upload found in $(pwd)"
-        log_message "$NO_ARCHIVE_MESSSAGE" $SUCCESS_LOG
+        NO_ARCHIVE_MESSAGE="No archives over $ARCHIVE_AGE days to upload found in $(pwd)"
+        log_message "$NO_ARCHIVE_MESSAGE" "$SUCCESS_LOG" "WARN"
     fi
 
     if [[ $DEMO_SUFFIX == "yes" ]]; then
         echo ""
-	    echo "A file with the commands that would be run in auto mode can be found here:"
-	    echo $COMMAND_OUTPUT_FILE
-		echo ""
+        echo "A file with the commands that would be run in auto mode can be found here:"
+        echo "$COMMAND_OUTPUT_FILE"
+        echo ""
     fi
-
-#Still working out upload validation logic to confirm successful upload before deleting files automatically on 2020SEP30 - JA
-#Logic to confirm successful upload finished - this will be rewritten into a separate function called by the upload function
 
 }
 
@@ -285,13 +410,12 @@ function autobundle {
 
     #Check if variable empty, if so indicates a smartcenter not an MDS
     if [ -z ${MDSVERUTIL+x} ]; then
-       echo "Smartcenter detected"
-       echo ""
-
-       bundle_loop $CMA
+       echo "Smartcenter detected, exiting"
+       echo "Currently designed only for a MDS server"
+       exit
 
     else
-	   echo ""
+       echo ""
        echo "MDS detected"
        echo ""
 
@@ -301,18 +425,18 @@ function autobundle {
        if [[ $DESIRED_CMA == "all" ]]; then
            for CMA in $($MDSVERUTIL AllCMAs); do
               echo ""
-			  echo "======================="
+              echo "======================="
               echo "Processing $CMA"
-              mdsenv $CMA
-              bundle_loop $CMA
+              mdsenv "$CMA"
+              bundle_loop "$CMA"
               echo "Completed $CMA"
            done
         else
             echo ""
-			echo "======================="
+            echo "======================="
             echo "Processing $DESIRED_CMA"
-            mdsenv $DESIRED_CMA
-            bundle_loop $DESIRED_CMA
+            mdsenv "$DESIRED_CMA"
+            bundle_loop "$DESIRED_CMA"
             echo "Completed $DESIRED_CMA"
         fi
     # reset mdsenv
@@ -320,7 +444,11 @@ function autobundle {
     fi
 
     echo ""
-    echo "All logs and command output files are stored in ${BASE_OUTPUT_DIR}"
+    echo "Temporary command output from test mode stored here: ${COMMAND_OUTPUT_DIR}"
+    echo ""
+    echo "Log files stored here: ${LOG_OUTPUT_DIR}"
+
+    cleanup_self_diagnostic_logs
 
     if [ "$SEND_EMAILS" = true ]; then
         echo "Sending notification emails"
@@ -333,7 +461,7 @@ function list_cmas {
     echo "CMA names:"
     echo ""
     for CMA in $($MDSVERUTIL AllCMAs); do
-        echo $CMA
+        echo "$CMA"
     done
 }
 
@@ -342,14 +470,14 @@ function email_message {
     #Display on command line
     echo -e "${1}"
     #Append to $TEMP_MAIL_FILE which will be sent to users
-    echo -e $1 >> $TEMP_MAIL_FILE
+    echo -e "$1" >> "$TEMP_MAIL_FILE"
 
 }
 
 function send_email {
 
-    rm -f $TEMP_MAIL_FILE
-    touch $TEMP_MAIL_FILE
+    rm -f "$TEMP_MAIL_FILE"
+    touch "$TEMP_MAIL_FILE"
 
     ### Start building the temp file we will use for email notifications
     email_message "$MAIL_FROM\n$MAIL_TO\n$(hostname) Log File Compression and Upload Notification ${DATETIME}\n"
@@ -377,11 +505,30 @@ function send_email {
         email_message "No archive upload attempts during run of $SN at ${DATETIME}"
     fi
 
-    $MDS_FWDIR/bin/sendmail -t $MAIL_SERVER_IP -m $TEMP_MAIL_FILE
+    "$MDS_FWDIR"/bin/sendmail -t "$MAIL_SERVER_IP" -m "$TEMP_MAIL_FILE"
 
     #Remove temporary files
-    rm -f $TEMP_MAIL_FILE
-    rm -f $TEMP_UPLOAD_LOG_FILE
+    rm -f "$TEMP_MAIL_FILE"
+    rm -f "$TEMP_UPLOAD_LOG_FILE"
+
+}
+
+#Cleanup the logs from this script running when over 30 days old
+function cleanup_self_diagnostic_logs {
+    cd "$LOG_OUTPUT_DIR"
+    SELFLOGLIST=$(find . -maxdepth 1 -mtime +$SELF_LOG_AGE -name "*.log")
+
+    echo ""
+    echo "Cleaning up diagnostic logs over $SELF_LOG_AGE days"
+    if [ "$SELFLOGLIST" != "" ]; then
+        for LOG in $SELFLOGLIST; do
+            LOGFILENAME=$(echo "$LOG" | sed 's/\.\///');
+            echo "Log file older then $LOG_AGE days found: $(pwd)/${LOGFILENAME}"
+            rm -f "$LOGFILENAME"
+        done
+    else
+        echo "No logs over $LOG_AGE days found in $(pwd) to cleanup"
+    fi
 
 }
 
@@ -393,9 +540,7 @@ if [[ $1 != "-l" ]] && [[ -z $1 || -z $2 || $1 = "-h" || $1 = "--help" ]]; then
     echo ""
     echo "tar and gzips Checkpoint log files and related log pointer files."
     echo "Can either operate automatically for all logs older than $LOG_AGE days"
-    echo "or can operate on a specific log file."
-    echo "For automatic operation, will detect if on an MDS and will iterate"
-    echo "over all CMAs."
+    echo "For automatic operation, will detect if on an MDS and will iterate over all CMAs"
     echo ""
     echo "Usage Guide:"
     echo "Specify the CMA name or all to run through all CMA's in a loop"
@@ -411,20 +556,20 @@ case $1 in
 -t)
     DEMO="echo"
     DEMO_SUFFIX="yes"
-	echo ""
-	echo "Running in DEMO mode to show what would happen if run in auto bundle mode"
-    autobundle $2
+    echo ""
+    echo "Running in DEMO mode to show what would happen if run in auto bundle mode"
+    autobundle "$2"
     ;;
 -a)
     DEMO=""
     DEMO_SUFFIX=""
-    autobundle $2
+    autobundle "$2"
     ;;
 -l)
     list_cmas
     ;;
 *)
-    do_bundle $1
+    do_bundle "$1"
     ;;
 esac
 
