@@ -194,12 +194,10 @@ SIGNATURE=$(echo -en "${STRINGTOSIGN}" | "$MDS_CPDIR"/bin/cpopenssl sha1 -hmac "
         "${COMPLETE_S3_URL}" )"
 
         #Parse the response output looking for the HTTP code, store numeric and text in variables, and perform actions if 200/100 or other
-        #shopt -s extglob
         OLDIFS=$IFS
         IFS=$'\n'
         for i in $HTTP_RESPONSE
         do
-        #echo "$i"
             case "$i" in
               HTTP* )
                 RESPONSE_CODE_NUMBER=$(echo "$i" | awk '{ print $2 }' | tr -d '\n\r\t')
@@ -350,7 +348,6 @@ function bundle_loop {
     if [ "$LOGLIST" != "" ]; then
         for LOG in $LOGLIST; do
             LOGFILENAME=$(echo "$LOG" | sed 's/\.\///');
-            #echo "Log file older then $LOG_AGE days found: $(pwd)/${LOGFILENAME}"
             FOUND_LOG_MESSAGE="Log file older then $LOG_AGE days found: $(pwd)/${LOGFILENAME}"
             log_message "$FOUND_LOG_MESSAGE" "$SUCCESS_LOG" "SUCCESS"
             do_bundle "$LOG" "$CMA" "$COMMAND_OUTPUT_FILE"
@@ -398,8 +395,7 @@ function bundle_loop {
 
 }
 
-# Detects if on Smartcenter or Provider-1 and runs bundle_loop for each
-# CMA or just once for Smartcenter
+# Detects if on Provider-1 / MDS and runs bundle_loop for each CMA
 function autobundle {
     #Load Check Point environment variables, exit if error
     if [ -r /etc/profile.d/CP.sh ]; then
