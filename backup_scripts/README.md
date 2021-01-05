@@ -1,7 +1,9 @@
 # chkp_compress_and_upload_logs_aws_s3
 Used to collect archive logs on a Check Point MDS or MLM log server, and upload to AWS S3 after a certain aging period has passed. Verifies remote file MD5 matches local file, and deletes local copy automatically
 
-File is stored in /var/log to prevent any issues with upgrades not carrying files in user directories
+Requires an S3 bucket with a user configured for programmatic access
+
+Script file is stored in /var/log to prevent any issues with upgrades not carrying files in user directories
 
 AWS Keys / S3 Bucket info is stored in a separate file (aws_keys), a blank template is created on first run in the same directory as the script
 
