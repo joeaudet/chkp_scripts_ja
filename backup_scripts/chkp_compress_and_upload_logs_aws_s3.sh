@@ -32,9 +32,10 @@
 # 2020-10-09 JA - Added in functions to enable email notifications, with separate settings file for SMTP settings and a check if present
 # 2020-12-18 JA - Updated function to list out all log files over LOG_AGE to console for testing
 #               - Created directory structure to put temp command file output and log files in separate directories
-#               - Added function to get ETAG (AWS S3 MD5 value), compare it to the local MD5 hash to ensure they match 
+# 2020-12-30 JA - Added function to get ETAG (AWS S3 MD5 value), compare it to the local MD5 hash to ensure they match 
 #                 before deleting local file, or overwrite remote file if different
 #               - Added function to cleanup self diagnostic log files over a certain age
+#               - Removed single log file option from script
 ##
 
 ###Start global variable declarations
@@ -547,7 +548,6 @@ if [[ $1 != "-l" ]] && [[ -z $1 || -z $2 || $1 = "-h" || $1 = "--help" ]]; then
     echo " $SN -a <CMA_NAME or all> = auto bundle (bundle all logs older than $LOG_AGE days, upload archives older than $ARCHIVE_AGE days)"
     echo " $SN -t <CMA_NAME or all> = test mode (just echo commands used for auto bundle)"
     echo " $SN -l = list all CMA names on this server"
-    echo " $SN <logname> = bundle <logname>"
     echo ""
     exit
 fi
