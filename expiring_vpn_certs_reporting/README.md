@@ -30,7 +30,7 @@ Script will create a CSV output file with all certificates, and can be configure
     ```
     SEND_EMAILS=true;
     ```
-2. Run the script once
+2. Run the script once (this will create the smtp_settings file with blank values)
     ```
     bash /var/log/find_expiring_vpn_certs_sms.bash
     ```
