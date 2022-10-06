@@ -8,7 +8,7 @@ Script will create a CSV output file with all certificates, and can be configure
 ### Use of this script is at users own risk
 ### No support will be provided for this script by Check Point Software Technologies
 
-#### Download and configure the script to run
+#### Download and configure the script to run on your management server
 1. Download the script [find_expiring_vpn_certs_sms.bash](https://raw.githubusercontent.com/joeaudet/chkp_scripts_ja/master/expiring_vpn_certs_reporting/find_expiring_vpn_certs_sms.bash) to workstation in command prompt window:
     ```
     curl_cli -k https://raw.githubusercontent.com/joeaudet/chkp_scripts_ja/master/expiring_vpn_certs_reporting/find_expiring_vpn_certs_sms.bash > /var/log/find_expiring_vpn_certs_sms.bash
