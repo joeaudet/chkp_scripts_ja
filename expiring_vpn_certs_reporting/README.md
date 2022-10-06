@@ -11,7 +11,7 @@ Script will create a CSV output file with all certificates, and can be configure
     ```
 1. Run the script manually
     ```
-    ./find_expiring_vpn_certs_sms.bash
+    bash /var/log/find_expiring_vpn_certs_sms.bash
     ```
 
 #### Create a cron job to run the script daily
