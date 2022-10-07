@@ -188,7 +188,7 @@ function send_email {
         done
     else
         # If no certificates expiring, make that the body
-        email_message "No expiring certificates found running $SN at ${DATETIME}"
+        email_message "No expiring certificates in next ${SELF_LOG_AGE} found running $SN at ${DATETIME}"
     fi
 
     # Send email notification
