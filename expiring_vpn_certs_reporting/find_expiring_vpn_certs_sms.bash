@@ -13,6 +13,15 @@
 #
 #####
 
+# Set Check Point environment variables
+if [ -f /opt/CPshared/5.0/tmp/.CPprofile.sh ]; then
+ . /opt/CPshared/5.0/tmp/.CPprofile.sh
+fi
+
+if [ -f /etc/rc.d/rc.local.user ]; then
+  . /etc/rc.d/rc.local.user
+fi
+
 # Ansi color code variables
 ANSI_RED="\e[0;91m";
 ANSI_GREEN="\e[0;32m";
