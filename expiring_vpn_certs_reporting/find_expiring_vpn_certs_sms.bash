@@ -58,7 +58,7 @@ TEMP_MAIL_FILE="${BASE_OUTPUT_DIR}/$(hostname)_vpn_certs_expiring_${DATETIME}";
 [ ! -d $BASE_OUTPUT_DIR ] && mkdir -p "$BASE_OUTPUT_DIR"
 
 #Define SMTP settings file in same location script is being run
-SMTP_SETTINGS_FILE="smtp_settings"
+SMTP_SETTINGS_FILE="/var/log/smtp_settings"
 
 ###Change to true to enable email notification
 SEND_EMAILS=false;
