@@ -80,7 +80,7 @@ if [ "$SEND_EMAILS" = true ]; then
         echo "SEND_EMAILS is enabled and one of the necessary SMTP Server user values is empty:"
         echo ""
         echo "Please check this file:"
-        echo -e "${ANSI_RED}$(pwd)/${SMTP_SETTINGS_FILE}${ANSI_RESET}"
+        echo -e "${ANSI_RED}${SMTP_SETTINGS_FILE}${ANSI_RESET}"
         echo ""
         echo "Make sure these variables all have values:"
         echo "MAIL_FROM | MAIL_TO | MAIL_SERVER_IP"
