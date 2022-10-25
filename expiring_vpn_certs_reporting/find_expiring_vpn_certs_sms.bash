@@ -176,7 +176,7 @@ function send_email {
     touch "$TEMP_MAIL_FILE"
 
     ### Start building the temp file we will use for email notifications
-    email_message "$MAIL_FROM\n$MAIL_TO\n$(hostname) VPN Certificate Expiriation Notification ${TODAY}"
+    email_message "$MAIL_FROM\n$MAIL_TO\n$(hostname) VPN Certificate Expiration Notification ${TODAY}"
     email_message "CSV output files of all certs from the previous ${SELF_LOG_AGE} days can be found on $(hostname) in ${BASE_OUTPUT_DIR}\n\n"
 
     if (( ${#EXPIRING_CERTS[@]} )); then
