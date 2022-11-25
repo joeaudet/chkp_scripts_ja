@@ -26,15 +26,16 @@ Script will create a CSV output file with all certificates, and can be configure
     ```
 
 #### Enable email notifications
-1. Change this variable within the script to true (default is false)
+1. PRE_REQUISITE: Make sure your email server is setup to receive unauthenticated email from your mgmt server
+2. Change this variable within the script to true (default is false)
     ```
     SEND_EMAILS=true;
     ```
-2. Run the script once (this will create the smtp_settings file with blank values)
+3. Run the script once (this will create the smtp_settings file with blank values)
     ```
     bash /var/log/find_expiring_vpn_certs_sms.bash
     ```
-3. Edit the smtp_settings file located in the same directory as the script - /var/log/smtp_settings - put in your information. Only one destination email allowed, use a distro group
+4. Edit the smtp_settings file located in the same directory as the script - /var/log/smtp_settings - put in your information. Only one destination email allowed, use a distro group
     ```
     MAIL_TO=""  
     MAIL_FROM=""  
