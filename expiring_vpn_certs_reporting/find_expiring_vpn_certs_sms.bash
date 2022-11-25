@@ -10,6 +10,10 @@
 #
 # Author: Joe Audet
 # Created: 2022OCT04
+# Updated: 2022NOV25
+# Version 1.2
+#
+# Tested in R81, R81.10, R81.20
 #
 #####
 
@@ -120,14 +124,14 @@ do
         CERT_EXPIRATION_DATE=`cpca_client lscert -stat Valid -dn "$CERT" | grep Not_After | awk -F '   '   '{print $2}' | sed 's/Not_After: //' | sed 's/  / /' | sed 's/ /,/g'`
 
         #make list with expiration date, month and year
-        EXPIRATION_DATE_SPLIT=$(python -c "lst='$CERT_INFO'.split('Not_After:'); print(lst[1].split())")
+        EXPIRATION_DATE_SPLIT=$(python3 -c "lst='$CERT_INFO'.split('Not_After:'); print(lst[1].split())")
 
         #get expiration day
-        EXPIRED_DATE=$( python -c "print($EXPIRATION_DATE_SPLIT[2])" )
+        EXPIRED_DATE=$( python3 -c "print($EXPIRATION_DATE_SPLIT[2])" )
         #get expiration month
-        EXPIRED_MONTH=$( python -c "print($EXPIRATION_DATE_SPLIT[1])" )
+        EXPIRED_MONTH=$( python3 -c "print($EXPIRATION_DATE_SPLIT[1])" )
         #get expiration year
-        EXPIRED_YEAR=$( python -c "print($EXPIRATION_DATE_SPLIT[-1])" )
+        EXPIRED_YEAR=$( python3 -c "print($EXPIRATION_DATE_SPLIT[-1])" )
 
         # Find the difference between today and the expiration date, convert it to days
         let DIFF=(`date +%s -d "${EXPIRED_MONTH} ${EXPIRED_DATE} ${EXPIRED_YEAR}"`-`date +%s -d $TODAY`)/86400
@@ -188,7 +192,7 @@ function send_email {
         done
     else
         # If no certificates expiring, make that the body
-        email_message "No expiring certificates in next ${SELF_LOG_AGE} found running $SN at ${DATETIME}"
+        email_message "No expiring certificates in next ${SELF_LOG_AGE} days found running $SN at ${DATETIME}"
     fi
 
     # Send email notification
@@ -203,7 +207,7 @@ function send_email {
 #Cleanup the logs from this script running when past retention limit
 function cleanup_output_files {
     cd "$BASE_OUTPUT_DIR"
-    SELFLOGLIST=$(find . -maxdepth 1 -mtime +$SELF_LOG_AGE -name "*.log")
+    SELFLOGLIST=$(find . -maxdepth 1 -mtime +$SELF_LOG_AGE -name "*.csv")
 
     echo ""
     echo -e "Cleaning up output over $SELF_LOG_AGE days old"
