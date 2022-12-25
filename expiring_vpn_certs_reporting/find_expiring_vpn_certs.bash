@@ -205,7 +205,7 @@ function send_email {
     done
   else
     # If no certificates expiring, make that the body
-    email_message "No expiring certificates in next ${SELF_LOG_AGE} days"
+    email_message "No expiring certificates in next ${AMOUNT_OF_DAYS} days"
   fi
 
   email_message "\n\nSent by:\nScript name: ${SN}\nVersion: ${VERSION}\nAt: ${DATETIME}\nCP Management Server: $(hostname)"
