@@ -8,6 +8,10 @@
 # When run on a smartcenter in auto bundle mode it will find any checkpoint
 #  log older than $LOG_AGE (set below) and bundle that logfile and pointers.
 # When run on an MDS it will do that for each CMA.
+#
+# This script is not an official Check Point Software Technologies script
+# Use of this script is at users own risk
+# No support will be provided for this script by Check Point Software Technologies
 ##
 # 2012-08-30 MH - initial version
 # 2012-09-01 MH - modified to require command line options and to add test
