@@ -11,6 +11,7 @@
 # No support will be provided for this script by Check Point Software Technologies
 #
 # Author: Joe Audet
+# Core Contributor: Igor_Demchenko (components of his script were used from: https://community.checkpoint.com/t5/Security-Gateways/Notify-when-certificate-expired/m-p/92189)
 # Updated: 2022DEC24
 #
 # Tested on R81, R81.10, R81.20
