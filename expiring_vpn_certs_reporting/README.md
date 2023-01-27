@@ -1,8 +1,7 @@
 # Find expiring VPN certificates #
 
-Script to find and report on VPN certificates that are expiring and create a CSV output  
+Script to find and report on VPN certificates that are expiring and create a CSV output (Optional email notification can be enabled) 
 Supports SMS / MDS - operates accordingly based on type of mgmt server
-Optional email notification can be enabled
 
 Default look ahead is 60 days. This can be changed within the script by changing the value of: AMOUNT_OF_DAYS
 
