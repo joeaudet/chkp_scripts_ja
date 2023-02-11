@@ -9,8 +9,8 @@ import csv
 """
 Author: Joe Audet
 Date Created: 2022NOV02
-Last Modified: 2023FEB07
-Ver: 0.7
+Last Modified: 2023FEB11
+Ver: 0.8
 
 Usage:
 This script will login to a SMS (Not MDS at this time - coming soon) and retrieve all of the non-shared and non-inline access policy layers, then present 
@@ -18,7 +18,7 @@ a menu where the user can select a policy (or all), which will create a CSV outp
 """
 
 #Header line to insert into the top of each CSV
-csv_header=["LAYER_NAME","RULE_NUMBER","RULE_NAME","HIT_COUNT","DATE_FIRST_HIT","DATE_LAST_HIT","DAYS_SINCE_LAST_HIT"]
+csv_header=["LAYER_NAME","RULE_NUMBER","RULE_NAME","HIT_COUNT","DATE_LAST_HIT","DAYS_SINCE_LAST_HIT","RULE_ENABLED","MODIFIED_DATE","MODIFIED_BY"]
 
 #Get today's date
 todays_date = date.today()
@@ -181,7 +181,7 @@ def loop_policy_rulebase(policyuid, policy_name):
 
   if response.status == 200:
     response_data = json.loads(response_data.decode('utf-8'))
-    loop_rules(response_data,'')
+    loop_rules(response_data,'','')
 
     while not finished:
       total_objects = response_data['total']  # total number of objects
@@ -192,55 +192,69 @@ def loop_policy_rulebase(policyuid, policy_name):
 
       iterations += 1
       
-      payload = json.dumps({"limit": limit, "offset": iterations * limit + offset, "name" : policyuid, "details-level" : "standard", "show-hits" : True})
+      payload = json.dumps({"limit": limit, "offset": iterations * limit + offset, "uid" : policyuid, "details-level" : "standard", "show-hits" : True})
       response = api_call(mgmt_server, "show-access-rulebase", payload, session_id)
       response_data = response.read()
       response_data = json.loads(response_data.decode('utf-8'))
-      loop_rules(response_data,'')
+      loop_rules(response_data,'','')
     
     print_rules(policy_name)
 
   else:
     print('Error occurred while trying to show-access-rulebase: {}'.format(response_data.decode('utf-8')))
 
-def loop_rules(data, parent_rule_number):
-  policyname = data['name']
+def loop_rules(data, parent_rule_number, policy_name):
+  #Due to how access-sections work, we need to store the policy name from the access-rulebase object and pass it back if an access-section is present when
+  #we loop through the sub-array because the nested object has no copy of the rulebase name to reference
+  if not policy_name:
+    policy_name = data['name']
   global all_rules_object
-  for x in data['rulebase']:
-    if 'name' in x:
-      rule_name = x['name'].replace('\n',' ')
+  for access_rule in data['rulebase']:
+    if (access_rule['type'] == 'access-section'):
+      #If an access-section is present it output the rules of the section as an array within the object, so we have to interate that sub-array to print those rules
+      loop_rules(access_rule,'',policy_name)
     else:
-      rule_name ='Empty Rule Name'
+      if 'name' in access_rule:
+        rule_name = access_rule['name'].replace('\n',' ')
+      else:
+        rule_name ='Empty Rule Name'
 
-    if 'last-date' in x['hits']:
-      last_hit_date = convert_datestring_to_date(x['hits']['last-date']['iso-8601'])
-      last_delta=str((todays_date - last_hit_date).days)
-      first_hit_date = convert_datestring_to_date(x['hits']['first-date']['iso-8601'])
-      first_delta=str((todays_date - first_hit_date).days)
-    else:
-      last_hit_date = last_hit_empty
-      last_delta = last_delta_empty
-      first_hit_date = first_hit_empty
-      first_delta = first_delta_empty
-    
-    if 'inline-layer' in x:
-      is_layer='Yes'
-      layer_uid=x['inline-layer']
-    else:
-      is_layer='No'
-      layer_uid='Not inline layer'
+      if 'last-date' in access_rule['hits']:
+        last_hit_date = convert_datestring_to_date(access_rule['hits']['last-date']['iso-8601'])
+        last_delta=str((todays_date - last_hit_date).days)
+        #first_hit_date = convert_datestring_to_date(access_rule['hits']['first-date']['iso-8601'])
+        #first_delta=str((todays_date - first_hit_date).days)
+      else:
+        last_hit_date = last_hit_empty
+        last_delta = last_delta_empty
+        #first_hit_date = first_hit_empty
+        #first_delta = first_delta_empty
+      
+      if 'inline-layer' in access_rule:
+        is_layer='Yes'
+        #layer_uid=access_rule['inline-layer']
+      else:
+        is_layer='No'
+        #layer_uid='Not inline layer'
 
-    if parent_rule_number:
-      rule_number = str(parent_rule_number) + '.' + str(x['rule-number'])
-    else:
-      rule_number = str(x['rule-number'])
+      if parent_rule_number:
+        rule_number = str(parent_rule_number) + '.' + str(access_rule['rule-number'])
+      else:
+        rule_number = str(access_rule['rule-number'])
 
-    if (is_layer == 'Yes'):
-      # Retrieve inline-layer info and number it to match what is in smartconsole:
-      all_rules_object.append([policyname,rule_number,rule_name,str(x['hits']['value']),str(first_hit_date),str(last_hit_date),last_delta])
-      get_inline_layer_info(x['inline-layer'], session_id, rule_number)
-    else:
-      all_rules_object.append([policyname,rule_number,rule_name,str(x['hits']['value']),str(first_hit_date),str(last_hit_date),last_delta])
+      last_modified_date = convert_datestring_to_date(access_rule['meta-info']['last-modify-time']['iso-8601'])
+
+#Orig
+#      if (is_layer == 'Yes'):
+#        # Retrieve inline-layer info and number it to match what is in smartconsole:
+#        all_rules_object.append([policy_name,rule_number,rule_name,str(access_rule['hits']['value']),str(last_hit_date),last_delta,access_rule['enabled'],last_modified_time,access-rule['meta-info']['last-modifier']])
+#        get_inline_layer_info(access_rule['inline-layer'], session_id, rule_number)
+#      else:
+#        all_rules_object.append([policy_name,rule_number,rule_name,str(access_rule['hits']['value']),str(last_hit_date),last_delta,access_rule['enabled'],last_modified_time,access-rule['meta-info']['last-modifier']])
+      all_rules_object.append([policy_name,rule_number,rule_name,str(access_rule['hits']['value']),str(last_hit_date),last_delta,access_rule['enabled'],last_modified_date,access_rule['meta-info']['last-modifier']])
+      if (is_layer == 'Yes'):
+        get_inline_layer_info(access_rule['inline-layer'], session_id, rule_number)
+
     
 def get_inline_layer_info(uid,sid,rulenumber):
   finished = False  # will become true after getting all the data
@@ -252,7 +266,7 @@ def get_inline_layer_info(uid,sid,rulenumber):
   response_data = response.read()
   if response.status == 200:
     response_data = json.loads(response_data.decode('utf-8'))
-    loop_rules(response_data,rulenumber)
+    loop_rules(response_data,rulenumber,'')
 
     while not finished:
       total_objects = response_data['total']  # total number of objects
@@ -267,7 +281,7 @@ def get_inline_layer_info(uid,sid,rulenumber):
       response = api_call(mgmt_server, "show-access-rulebase", payload, session_id)
       response_data = response.read()
       response_data = json.loads(response_data.decode('utf-8'))
-      loop_rules(response_data,rulenumber)
+      loop_rules(response_data,rulenumber,'')
       
   else:
     print('Error occurred while trying to inline layer: {}'.format(response_data.decode('utf-8')))
