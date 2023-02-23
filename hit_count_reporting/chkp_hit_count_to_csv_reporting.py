@@ -9,8 +9,8 @@ import csv
 """
 Author: Joe Audet
 Date Created: 2022NOV02
-Last Modified: 2023FEB11
-Ver: 0.8
+Last Modified: 2023FEB23
+Ver: 0.9
 
 Usage:
 This script will login to a SMS (Not MDS at this time - coming soon) and retrieve all of the non-shared and non-inline access policy layers, then present 
@@ -18,7 +18,7 @@ a menu where the user can select a policy (or all), which will create a CSV outp
 """
 
 #Header line to insert into the top of each CSV
-csv_header=["LAYER_NAME","RULE_NUMBER","RULE_NAME","HIT_COUNT","DATE_LAST_HIT","DAYS_SINCE_LAST_HIT","RULE_ENABLED","MODIFIED_DATE","MODIFIED_BY"]
+csv_header=["LAYER_NAME","RULE_NUMBER","RULE_NAME","HIT_COUNT","DATE_LAST_HIT","DAYS_SINCE_LAST_HIT","RULE_ENABLED","MODIFIED_DATE","MODIFIED_BY","RULE_UID"]
 
 #Get today's date
 todays_date = date.today()
@@ -251,7 +251,7 @@ def loop_rules(data, parent_rule_number, policy_name):
 #        get_inline_layer_info(access_rule['inline-layer'], session_id, rule_number)
 #      else:
 #        all_rules_object.append([policy_name,rule_number,rule_name,str(access_rule['hits']['value']),str(last_hit_date),last_delta,access_rule['enabled'],last_modified_time,access-rule['meta-info']['last-modifier']])
-      all_rules_object.append([policy_name,rule_number,rule_name,str(access_rule['hits']['value']),str(last_hit_date),last_delta,access_rule['enabled'],last_modified_date,access_rule['meta-info']['last-modifier']])
+      all_rules_object.append([policy_name,rule_number,rule_name,str(access_rule['hits']['value']),str(last_hit_date),last_delta,access_rule['enabled'],last_modified_date,access_rule['meta-info']['last-modifier'],access_rule['uid']])
       if (is_layer == 'Yes'):
         get_inline_layer_info(access_rule['inline-layer'], session_id, rule_number)
 
