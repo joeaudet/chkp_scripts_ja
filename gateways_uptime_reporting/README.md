@@ -4,7 +4,7 @@ Script to report gateways uptime, save output to CSV
 
 Supports MDS only currently 
 
-### This script is not an official Check Point Software Technologies script
+### $${\color{red}This script is not an official Check Point Software Technologies script}$$
 ### Use of this script is at users own risk
 ### No support will be provided for this script by Check Point Software Technologies
 
