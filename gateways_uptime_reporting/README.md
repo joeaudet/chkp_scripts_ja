@@ -1,6 +1,6 @@
-# Repport on Gateways uptime #
+# Report on Gateways uptime #
 
-Script to find and report on gateways uptime, save output to CSV
+Script to report gateways uptime, save output to CSV
 
 Supports MDS only currently
 
