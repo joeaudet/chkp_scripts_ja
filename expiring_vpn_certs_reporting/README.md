@@ -6,9 +6,8 @@ Supports SMS & MDS - operates accordingly based on type of mgmt server
 
 Default look ahead is 60 days. This can be changed within the script by changing the value of: AMOUNT_OF_DAYS
 
-### This script is not an official Check Point Software Technologies script
-### Use of this script is at users own risk
-### No support will be provided for this script by Check Point Software Technologies
+>[!WARNING]
+> ### This script is not an official Check Point Software Technologies script. Use of this script is at users own risk. No support will be provided for this script by Check Point Software Technologies
 
 #### Download and configure the script to run on your management server
 1. Download the script [find_expiring_vpn_certs.bash](https://raw.githubusercontent.com/joeaudet/chkp_scripts_ja/master/expiring_vpn_certs_reporting/find_expiring_vpn_certs.bash) in expert mode:
