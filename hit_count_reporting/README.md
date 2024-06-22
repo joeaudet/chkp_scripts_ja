@@ -4,9 +4,8 @@ Script to export a single policy or all policies to CSV including hit count info
 
 Supports SMS currently (MDS coming)
 
-### This script is not an official Check Point Software Technologies script
-### Use of this script is at users own risk
-### No support will be provided for this script by Check Point Software Technologies
+>[!WARNING]
+> ### This script is not an official Check Point Software Technologies script. Use of this script is at users own risk. No support will be provided for this script by Check Point Software Technologies
 
 #### Download and configure the script to run on your management server
 1. Download the script [chkp_hit_count_to_csv_reporting.py](https://raw.githubusercontent.com/joeaudet/chkp_scripts_ja/master/hit_count_reporting/chkp_hit_count_to_csv_reporting.py) in expert mode:
