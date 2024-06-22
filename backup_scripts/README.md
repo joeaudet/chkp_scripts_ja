@@ -16,7 +16,8 @@ Run manually, or setup a cron job to run the script nightly for automated cleanu
 Script will put diagnostic data in the following default directory:
 /var/log/tmp/compress_and_upload_output
 
-
+>[!WARNING]
+> ### This script is not an official Check Point Software Technologies script. Use of this script is at users own risk. No support will be provided for this script by Check Point Software Technologies
 
 ## Instructions 
 
