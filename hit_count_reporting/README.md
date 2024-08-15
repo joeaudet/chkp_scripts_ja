@@ -10,7 +10,7 @@ Supports SMS currently (MDS coming)
 #### Download and configure the script to run on your management server
 1. Download the script [chkp_hit_count_to_csv_reporting.py](https://raw.githubusercontent.com/joeaudet/chkp_scripts_ja/master/hit_count_reporting/chkp_hit_count_to_csv_reporting.py) in expert mode:
     ```
-    curl_cli -k https://raw.githubusercontent.com/joeaudet/chkp_scripts_ja/master/hit_count_reporting/chkp_hit_count_to_csv_reporting.py > chkp_hit_count_to_csv_reporting.py
+    curl_cli -k -O https://raw.githubusercontent.com/joeaudet/chkp_scripts_ja/master/hit_count_reporting/chkp_hit_count_to_csv_reporting.py
     ```
 1. Run the script manually
     ```
