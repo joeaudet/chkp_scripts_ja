@@ -16,3 +16,13 @@ Supports SMS currently (MDS coming)
     ```
     python3 chkp_hit_count_to_csv_reporting.py
     ```
+
+#### MDS Test version
+1. Download the script [chkp_hit_count_to_csv_reporting_MDS_v2.py](https://raw.githubusercontent.com/joeaudet/chkp_scripts_ja/master/hit_count_reporting/chkp_hit_count_to_csv_reporting_MDS_v2.py) in expert mode:
+    ```
+    curl_cli -O https://raw.githubusercontent.com/joeaudet/chkp_scripts_ja/master/hit_count_reporting/chkp_hit_count_to_csv_reporting_MDS_v2.py
+    ```
+1. Run the script manually
+    ```
+    python3 chkp_hit_count_to_csv_reporting_MDS_v2.py
+    ```
