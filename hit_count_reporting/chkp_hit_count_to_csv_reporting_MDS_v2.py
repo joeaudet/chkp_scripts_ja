@@ -10,7 +10,7 @@ import csv
 Author: Joe Audet
 Date Created: 2022NOV02
 Last Modified: 2024AUG15
-Ver: 0.91
+Ver: 0.92
 
 Usage:
 This script will login to a Check Point management server and retrieve all of the non-shared and non-inline access policy layers, then present 
@@ -311,7 +311,7 @@ def loop_rules(data, parent_rule_number, policy_name, sid):
   for access_rule in data['rulebase']:
     if (access_rule['type'] == 'access-section'):
       #If an access-section is present it output the rules of the section as an array within the object, so we have to interate that sub-array to print those rules
-      loop_rules(access_rule,'',policy_name)
+      loop_rules(access_rule,'',policy_name,sid)
     else:
       if 'name' in access_rule:
         rule_name = access_rule['name'].replace('\n',' ')
@@ -358,7 +358,7 @@ def get_inline_layer_info(uid,sid,rulenumber):
   response_data = response.read()
   if response.status == 200:
     response_data = json.loads(response_data.decode('utf-8'))
-    loop_rules(response_data,rulenumber,'')
+    loop_rules(response_data,rulenumber,'',sid)
 
     while not finished:
       total_objects = response_data['total']  # total number of objects
@@ -373,7 +373,7 @@ def get_inline_layer_info(uid,sid,rulenumber):
       response = api_call(mgmt_server, "show-access-rulebase", payload, sid)
       response_data = response.read()
       response_data = json.loads(response_data.decode('utf-8'))
-      loop_rules(response_data,rulenumber,'')
+      loop_rules(response_data,rulenumber,'',sid)
       
   else:
     print('Error occurred while trying to inline layer: {}'.format(response_data.decode('utf-8')))
